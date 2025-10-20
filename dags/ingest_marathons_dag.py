@@ -1,6 +1,8 @@
 import pendulum
 from airflow import DAG
 from airflow.operators.bash import BashOperator
+from airflow.providers.mongo.hooks.mongo import MongoHook
+from airflow.operators.python import PythonOperator
 
 START_DATE = pendulum.datetime(2025, 10, 20, tz="UTC")
 
@@ -14,6 +16,18 @@ with DAG(
     tags=["ingestion"]
 ) as dag :
     
+    def test_mongo_connection(**context):
+        hook = MongoHook(conn_id='mongo_default')
+        client = hook.get_conn()
+        db = client['airflow_test']
+        collection = db['connection_test']
+        collection.insert_one({
+            "status": "success",
+            "message": "MongoDB connection OK",
+        })
+        client.close()
+
+
     get_spreadsheet = BashOperator(
         task_id="get_spreadsheet",
         bash_command=(
@@ -22,4 +36,9 @@ with DAG(
         )
     )
 
-    get_spreadsheet
+    test_mongo = PythonOperator(
+        task_id='test_mongo_connection',
+        python_callable=test_mongo_connection,
+    )
+
+    get_spreadsheet >> test_mongo
