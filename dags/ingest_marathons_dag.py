@@ -1,8 +1,10 @@
 import pendulum
+import pandas as pd
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.operators.python import PythonOperator
+from pymongo.errors import BulkWriteError
 
 START_DATE = pendulum.datetime(2025, 10, 20, tz="UTC")
 
@@ -15,18 +17,27 @@ with DAG(
     template_searchpath=["/opt/airflow/data/"],
     tags=["ingestion"]
 ) as dag :
-    
-    def test_mongo_connection(**context):
+
+    def insert_marathons_data(**context):
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
-        db = client['airflow_test']
-        collection = db['connection_test']
-        collection.insert_one({
-            "status": "success",
-            "message": "MongoDB connection OK",
-        })
-        client.close()
+        db = client['project']
+        collection = db['major_marathons']
+        collection.create_index("ID", unique=True)
 
+        df = pd.read_csv("/opt/airflow/data/major_marathons_data.csv")
+        data_to_insert = df.to_dict('records')
+        try:
+            collection.insert_many(data_to_insert, ordered=False)
+            print(f"{len(data_to_insert)} inserted documents into 'major_marathons' collection.")
+        except BulkWriteError as bwe:
+            write_errors = bwe.details.get("writeErrors", [])
+            dup_count = sum(1 for err in write_errors if err.get("code") == 11000)
+            total_inserts = len(data_to_insert) - dup_count
+            print(f"{dup_count} detected and ignored duplicates.")
+            print(f"{total_inserts} new inserted documents into 'major_marathons' collection.")
+        
+        client.close()
 
     get_spreadsheet = BashOperator(
         task_id="get_spreadsheet",
@@ -36,9 +47,9 @@ with DAG(
         )
     )
 
-    test_mongo = PythonOperator(
-        task_id='test_mongo_connection',
-        python_callable=test_mongo_connection,
+    insert_marathons = PythonOperator(
+        task_id='insert_marathons_data',
+        python_callable=insert_marathons_data
     )
 
-    get_spreadsheet >> test_mongo
+    get_spreadsheet >> insert_marathons
