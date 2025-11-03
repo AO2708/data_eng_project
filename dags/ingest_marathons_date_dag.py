@@ -20,19 +20,13 @@ PREFIX bd: <http://www.bigdata.com/rdf#>
 SELECT ?marathon ?marathonLabel ?edition ?editionLabel ?date ?locationLabel WHERE {
   VALUES ?marathon {
     wd:Q826038    # Boston Marathon
-    wd:Q161222    # Berlin Marathon
-    wd:Q578794    # London Marathon
-    wd:Q1071822   # Chicago Marathon
-    wd:Q752138    # New York City Marathon
-    wd:Q1191380   # Tokyo Marathon
-    wd:Q15553343  # Sydney Marathon
   }
 
   ?edition wdt:P31 ?marathon;
            wdt:P585 ?date.
   OPTIONAL { ?edition wdt:P276 ?location. }
 
-  FILTER(YEAR(?date) >= 1897 && YEAR(?date) <= 2014)
+  FILTER(YEAR(?date) >= 1897 && YEAR(?date) <= 2025)
 
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 }
