@@ -11,3 +11,4 @@ pyneo==0.2.0
 py2neo==2021.2.4
 apache-airflow-providers-mongo==5.2.2
 apache-airflow-providers-postgres==6.3.0
+meteostat==1.7.6
