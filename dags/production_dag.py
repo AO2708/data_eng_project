@@ -10,17 +10,13 @@ import csv
 START_DATE = pendulum.datetime(2025, 10, 20, tz="UTC")
 
 with DAG(
-    dag_id="04_dag",
+    dag_id="production_dag",
     start_date=START_DATE,
     schedule=None,
     catchup=False,
     max_active_tasks=1,
-    default_args={
-        "retries": 1,
-        "retry_delay": timedelta(minutes=5),
-    },
     template_searchpath=["/opt/airflow/data/"],
-    tags=["tp_04"],
+    tags=["production"]
 ) as dag:
     
     # Extract queries
