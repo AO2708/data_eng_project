@@ -19,7 +19,13 @@ PREFIX bd: <http://www.bigdata.com/rdf#>
 
 SELECT ?marathon ?marathonLabel ?edition ?editionLabel ?date ?locationLabel WHERE {
   VALUES ?marathon {
-    wd:Q826038    # Boston Marathon
+    wd:Q826038
+    wd:Q161222
+    wd:Q578794
+    wd:Q1071822
+    wd:Q752138
+    wd:Q1191380
+    wd:Q15553343
   }
 
   ?edition wdt:P31 ?marathon;

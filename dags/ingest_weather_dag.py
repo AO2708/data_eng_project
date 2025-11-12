@@ -10,6 +10,7 @@ import json
 from meteostat import Point, Daily
 import pandas as pd
 from datetime import datetime
+import os
 
 START_DATE = pendulum.datetime(2025, 10, 20, tz="UTC")
 
@@ -58,14 +59,27 @@ with DAG(
             "Boston": Point(42.361145, -71.057083)
         }
 
-        start = datetime(2010, 1, 1)
-        end = datetime(2010, 12, 31)
+        start = datetime(2015, 1, 1)
+        end = datetime(2019, 12, 31)
+
+        print(start,end)
 
         for city_name, location in cities.items():
             data = Daily(location, start, end)
             data = data.fetch()
 
             filename = "/opt/airflow/data/" + city_name.lower() + "_weather.json"
+            
+            try:
+                os.remove(filename)
+                print(f"File '{filename}' has been deleted successfully.")
+            except FileNotFoundError:
+                print(f"File '{filename}' not found.")
+            except PermissionError:
+                print(f"Permission denied to delete the file '{filename}'.")
+            except Exception as e:
+                print(f"Error occurred while deleting the file: {e}")
+
             data.to_json(filename)
             print(f"Saved data for {city_name} in {filename}")
 
