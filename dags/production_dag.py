@@ -2,8 +2,9 @@ import pendulum
 from datetime import timedelta
 import pandas as pd
 from airflow import DAG
+from airflow.utils.trigger_rule import TriggerRule
 from airflow.operators.empty import EmptyOperator
-from airflow.operators.python import PythonOperator
+from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 import csv
 
@@ -18,7 +19,21 @@ with DAG(
     template_searchpath=["/opt/airflow/data/"],
     tags=["production"]
 ) as dag:
-    
+
+    def _check_db_handler(cursor):
+        row = cursor.fetchone()
+        if row is not None:
+            return True
+        else:
+            return False
+        
+    def _branch_on_db_existence(ti):
+        db_exists = ti.xcom_pull(task_ids="check_db")
+        if db_exists:
+            return "skip_create"
+        else:
+            return "create_db"
+
     # Extract queries
     def _create_tables_query(output_folder:str):
         with open("/opt/airflow/data/create_tables.sql", "w") as f:
@@ -30,7 +45,7 @@ with DAG(
                 "   Snow NUMERIC(3,1),\n"
                 "   WindSpeed NUMERIC(4,1),\n"
                 "   Pressure NUMERIC(5,1),\n"
-                "   SunTime NUMERIC(5,1),\n"
+                "   SunTime NUMERIC(5,1)\n"
                 ");\n"
             )
             f.write(
@@ -268,6 +283,30 @@ with DAG(
             f.write("\nON CONFLICT (RaceResultId) DO NOTHING;\n")
 
     # Operators
+    check_db = SQLExecuteQueryOperator(
+        task_id="check_db",
+        conn_id="potgres_default",
+        sql="SELECT 1 FROM pg_database WHERE datname = 'production';",
+        autocommit=True,
+        handler=_check_db_handler,
+    )
+
+    branch = BranchPythonOperator(
+        task_id="branch_on_db_existence",
+        python_callable=_branch_on_db_existence,
+    )
+
+    create_db = SQLExecuteQueryOperator(
+        task_id="create_db",
+        conn_id="potgres_default",
+        sql="CREATE DATABASE production;",
+        autocommit=True,
+        handler=None
+    )
+
+    skip_create = EmptyOperator(
+        task_id="skip_create"
+    )
 
     create_tables_query = PythonOperator(
         task_id="create_tables_query",
@@ -275,11 +314,12 @@ with DAG(
         op_kwargs={
             "output_folder": "/opt/airflow/data",
         },
+        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
     )
 
     create_tables = SQLExecuteQueryOperator(
         task_id="create_tables",
-        conn_id="OLTP",
+        conn_id="postgres_production",
         sql="create_tables.sql",
         autocommit=True,
         handler=None,
@@ -327,7 +367,7 @@ with DAG(
 
     extract_runners = SQLExecuteQueryOperator(
         task_id="extract_runners",
-        conn_id="OLTP",
+        conn_id="postgres_production",
         sql="extract_runners.sql",
         autocommit=True,
         handler=_runners_query_handler,
@@ -335,7 +375,7 @@ with DAG(
 
     extract_weather = SQLExecuteQueryOperator(
         task_id="extract_weather",
-        conn_id="OLTP",
+        conn_id="postgres_production",
         sql="extract_weather.sql",
         autocommit=True,
         handler=_weather_query_handler,
@@ -343,7 +383,7 @@ with DAG(
 
     extract_date = SQLExecuteQueryOperator(
         task_id="extract_date",
-        conn_id="OLTP",
+        conn_id="postgres_production",
         sql="extract_date.sql",
         autocommit=True,
         handler=_date_query_handler,
@@ -351,7 +391,7 @@ with DAG(
 
     extract_location = SQLExecuteQueryOperator(
         task_id="extract_location",
-        conn_id="OLTP",
+        conn_id="postgres_production",
         sql="extract_location.sql",
         autocommit=True,
         handler=_location_query_handler,
@@ -359,7 +399,7 @@ with DAG(
 
     extract_race_result = SQLExecuteQueryOperator(
         task_id="extract_race_result",
-        conn_id="OLTP",
+        conn_id="postgres_production",
         sql="race_result_extract.sql",
         autocommit=True,
         handler=_race_result_query_handler,
@@ -451,7 +491,7 @@ with DAG(
     )
 
     # DAG
-
+    check_db >> branch >> [create_db, skip_create] >> create_tables_query
     create_tables_query >> create_tables >> [extract_runners_query, extract_weather_query, extract_date_query, extract_location_query]
     extract_runners_query >> extract_runners >> insert_runners_query >> insert_runners
     extract_weather_query >> extract_weather >> insert_weather_query >> insert_weather
