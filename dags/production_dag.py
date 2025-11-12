@@ -245,20 +245,20 @@ with DAG(
         mapping_df = pd.DataFrame(mapping_city_key.items(), columns=["LocationKey", "City"])
         mapping_df.to_csv(f"/opt/airflow/data/marathon_location_mapping.csv", index=False)
 
-    def _insert_race_result_query(output_folder:str): #A MODIFIER
+    def _insert_race_result_query(output_folder:str):
         with open("/opt/airflow/data/insert_race_result.sql", "w") as f:
-            df_sales = pd.read_csv("/opt/airflow/data/race_result.csv")
+            df_race_result = pd.read_csv("/opt/airflow/data/race_result.csv")
 
             mapping_df = pd.read_csv(f"/opt/airflow/data/marathon_location_mapping.csv")
             mapping_dict = pd.Series(mapping_df.LocationKey.values,index=mapping_df.City).to_dict()
 
             f.write(
-                "INSERT INTO FactSales (DateKey, LocationKey, RunnerKey, WeatherKey, OverallRanking, GenderRanking, Time, Pace)\n"
+                "INSERT INTO FactRaceResult (DateKey, LocationKey, RunnerKey, WeatherKey, OverallRanking, GenderRanking, Time, Pace)\n"
                 "VALUES\n"
             )
             values = []
 
-            for row in df_sales.itertuples(index=False) :
+            for row in df_race_result.itertuples(index=False) :
                 datekey = row.marathon_id
                 locationkey = mapping_dict.get(row.city, None)
                 runnerkey = row.runner_id
@@ -269,7 +269,7 @@ with DAG(
                 pace = row.pace
                 values.append(f"({datekey}, {locationkey}, {runnerkey}, {weatherkey}, {overallranking}, {genderranking}, {time}, {pace})")
             f.write(", \n".join(values))
-            f.write("\nON CONFLICT (SaleID) DO NOTHING;\n")
+            f.write("\nON CONFLICT (RaceResultId) DO NOTHING;\n")
 
     # Operators
 
