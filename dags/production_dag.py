@@ -47,8 +47,8 @@ with DAG(
                 ");\n"
             )
             f.write(
-                "CREATE TABLE IF NOT EXISTS DimLocalisation(\n"
-                "   LocalisationKey SERIAL PRIMARY KEY,\n"
+                "CREATE TABLE IF NOT EXISTS DimLocation(\n"
+                "   LocationKey SERIAL PRIMARY KEY,\n"
                 "   City VARCHAR(50)\n"
                 ");\n"
             )
@@ -63,9 +63,9 @@ with DAG(
             )
             f.write(
                 "CREATE TABLE IF NOT EXISTS FactRaceResult(\n"
-                "   RaceResultId SERIAL PRIMARY KEY\n"
+                "   RaceResultId SERIAL PRIMARY KEY,\n"
                 "   DateKey INT REFERENCES DimDate(DateKey),\n"
-                "   RaceKey INT REFERENCES DimRace(RaceKey),\n"
+                "   LocationKey INT REFERENCES DimLocation(LocationKey),\n"
                 "   RunnerKey INT REFERENCES DimRunner(RunnerKey),\n"
                 "   WeatherKey INT REFERENCES DimWeather(WeatherKey),\n"
                 "   OverallRanking INT,\n"
@@ -94,6 +94,29 @@ with DAG(
                 "SELECT marathon_id, full_date, year, month, day FROM marathons ;\n"
             )
 
+    def _extract_location_query(output_folder:str):
+        with open("/opt/airflow/data/extract_location.sql", "w") as f:
+            f.write(
+                "SELECT city FROM marathons ;\n"
+            )
+
+    def _extract_race_result_query(output_folder:str):
+        with open("/opt/airflow/data/race_result_extract.sql", "w") as f:
+            f.write(
+                "SELECT \n"
+                "   m.marathon_id, \n"
+                "   run.runner_id, \n"
+                "   w.weather_id, \n"
+                "   r.overall_ranking, \n"
+                "   r.gender_ranking, \n"
+                "   r.time, \n"
+                "   r.pace, \n"
+                "FROM marathons m\n"
+                "JOIN weather w ON m.marathon_id = w.marathon_id\n"
+                "JOIN result r ON m.marathon_id = r.marathon_id\n"
+                "JOIN runners run ON r.runner_id = run.runner_id;\n"
+            )
+
     # Query handlers
 
     def _runners_query_handler(cursor):
@@ -116,6 +139,24 @@ with DAG(
 
     def _date_query_handler(cursor):
         csv_path = "/opt/airflow/data/date.csv"
+        columns = [desc[0] for desc in cursor.description]
+        results = cursor.fetchall()
+        with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(columns) 
+            writer.writerows(results)
+
+    def _location_query_handler(cursor):
+        csv_path = "/opt/airflow/data/location.csv"
+        columns = [desc[0] for desc in cursor.description]
+        results = cursor.fetchall()
+        with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(columns) 
+            writer.writerows(results)
+
+    def _race_result_query_handler(cursor):
+        csv_path = "/opt/airflow/data/race_result.csv"
         columns = [desc[0] for desc in cursor.description]
         results = cursor.fetchall()
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
@@ -184,6 +225,52 @@ with DAG(
             f.write("\nON CONFLICT (DateKey) DO NOTHING;\n")
             f.write("SELECT setval('dimdate_datekey_seq', COALESCE((SELECT MAX(DateKey) FROM DimDate), 0),  true);\n")
 
+    def _insert_location_query(output_folder:str):
+        mapping_city_key = {}
+        with open("/opt/airflow/data/insert_location.sql", "w") as f:
+            df = pd.read_csv("/opt/airflow/data/location.csv")
+            f.write(
+                "INSERT INTO DimLocation (LocationKey, City)\n"
+                "VALUES\n"
+            )
+            values = []
+            for row in df.itertuples(index=False) :
+                city = row.city
+                if city not in mapping_city_key:
+                    mapping_city_key[city] = len(mapping_city_key) + 1
+                values.append(f"({mapping_city_key[city]}, '{city}')")
+            f.write(", \n".join(values))
+            f.write("\nON CONFLICT (LocationKey) DO NOTHING;\n")
+            f.write("SELECT setval('dimlocation_locationkey_seq', COALESCE((SELECT MAX(LocationKey) FROM DimLocation), 0),  true);\n")
+        mapping_df = pd.DataFrame(mapping_city_key.items(), columns=["LocationKey", "City"])
+        mapping_df.to_csv(f"/opt/airflow/data/marathon_location_mapping.csv", index=False)
+
+    def _insert_race_result_query(output_folder:str):
+        with open("/opt/airflow/data/insert_race_result.sql", "w") as f:
+            df_race_result = pd.read_csv("/opt/airflow/data/race_result.csv")
+
+            mapping_df = pd.read_csv(f"/opt/airflow/data/marathon_location_mapping.csv")
+            mapping_dict = pd.Series(mapping_df.LocationKey.values,index=mapping_df.City).to_dict()
+
+            f.write(
+                "INSERT INTO FactRaceResult (DateKey, LocationKey, RunnerKey, WeatherKey, OverallRanking, GenderRanking, Time, Pace)\n"
+                "VALUES\n"
+            )
+            values = []
+
+            for row in df_race_result.itertuples(index=False) :
+                datekey = row.marathon_id
+                locationkey = mapping_dict.get(row.city, None)
+                runnerkey = row.runner_id
+                weatherkey = row.weather_id
+                overallranking = row.overall_ranking
+                genderranking = row.gender_ranking
+                time = row.time
+                pace = row.pace
+                values.append(f"({datekey}, {locationkey}, {runnerkey}, {weatherkey}, {overallranking}, {genderranking}, {time}, {pace})")
+            f.write(", \n".join(values))
+            f.write("\nON CONFLICT (RaceResultId) DO NOTHING;\n")
+
     # Operators
 
     create_tables_query = PythonOperator(
@@ -226,6 +313,22 @@ with DAG(
         },
     )
 
+    extract_location_query = PythonOperator(
+        task_id="extract_location_query",
+        python_callable=_extract_location_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    extract_race_result_query = PythonOperator(
+        task_id="extract_race_result_query",
+        python_callable=_extract_race_result_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
     extract_runners = SQLExecuteQueryOperator(
         task_id="extract_runners",
         conn_id="OLTP",
@@ -250,6 +353,22 @@ with DAG(
         handler=_date_query_handler,
     )
 
+    extract_location = SQLExecuteQueryOperator(
+        task_id="extract_location",
+        conn_id="OLTP",
+        sql="extract_location.sql",
+        autocommit=True,
+        handler=_location_query_handler,
+    )
+
+    extract_race_result = SQLExecuteQueryOperator(
+        task_id="extract_race_result",
+        conn_id="OLTP",
+        sql="race_result_extract.sql",
+        autocommit=True,
+        handler=_race_result_query_handler,
+    )
+
     insert_runners_query = PythonOperator(
         task_id="insert_runners_query",
         python_callable=_insert_runners_query,
@@ -269,6 +388,22 @@ with DAG(
     insert_date_query = PythonOperator(
         task_id="insert_date_query",
         python_callable=_insert_date_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    insert_location_query = PythonOperator(
+        task_id="insert_location_query",
+        python_callable=_insert_location_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    insert_race_result_query = PythonOperator(
+        task_id="insert_race_result_query",
+        python_callable=_insert_race_result_query,
         op_kwargs={
             "output_folder": "/opt/airflow/data",
         },
@@ -298,25 +433,34 @@ with DAG(
         handler=None,
     )
 
-    insert_weather = SQLExecuteQueryOperator(
-        task_id="insert_weather",
+    insert_location = SQLExecuteQueryOperator(
+        task_id="insert_location",
         conn_id="OLAP",
-        sql="insert_weather.sql",
+        sql="insert_location.sql",
         autocommit=True,
         handler=None,
     )
 
-    insert_date = SQLExecuteQueryOperator(
-        task_id="insert_date",
+    insert_race_result = SQLExecuteQueryOperator(
+        task_id="insert_race_result",
         conn_id="OLAP",
-        sql="insert_date.sql",
+        sql="insert_race_result.sql",
         autocommit=True,
         handler=None,
+    )
+
+    join_dimensions = EmptyOperator(
+        task_id="join_dimensions",
+        trigger_rule="none_failed",
     )
 
     # DAG
 
-    create_tables_query >> create_tables >> [extract_runners_query, extract_weather_query, extract_date_query]
+    create_tables_query >> create_tables >> [extract_runners_query, extract_weather_query, extract_date_query, extract_location_query]
     extract_runners_query >> extract_runners >> insert_runners_query >> insert_runners
     extract_weather_query >> extract_weather >> insert_weather_query >> insert_weather
     extract_date_query >> extract_date >> insert_date_query >> insert_date
+    extract_location_query >> extract_location >> insert_location_query >> insert_location
+    [insert_runners, insert_weather, insert_date, insert_location] >> join_dimensions
+    join_dimensions >> extract_race_result_query >> extract_race_result >> insert_race_result_query >> insert_race_result
+    
