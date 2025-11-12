@@ -23,6 +23,7 @@ with DAG(
     tags=["tp_04"],
 ) as dag:
     
+    # Extract queries
     def _create_tables_query(output_folder:str):
         with open("/opt/airflow/data/create_tables.sql", "w") as f:
             f.write(
@@ -81,6 +82,20 @@ with DAG(
                 "SELECT * FROM runners;\n"
             )
 
+    def _extract_weather_query(output_folder:str):
+        with open("/opt/airflow/data/extract_weather.sql", "w") as f:
+            f.write(
+                "SELECT weather_id, t_avg, precipitation, snow, wind_speed, pressure, sun FROM weather;\n"
+            )
+
+    def _extract_date_query(output_folder:str):
+        with open("/opt/airflow/data/extract_date.sql", "w") as f:
+            f.write(
+                "SELECT marathon_id, full_date, year, month, day FROM marathons ;\n"
+            )
+
+    # Query handlers
+
     def _runners_query_handler(cursor):
         csv_path = "/opt/airflow/data/runners.csv"
         columns = [desc[0] for desc in cursor.description]
@@ -89,6 +104,26 @@ with DAG(
             writer = csv.writer(f)
             writer.writerow(columns) 
             writer.writerows(results)
+
+    def _weather_query_handler(cursor):
+        csv_path = "/opt/airflow/data/weather.csv"
+        columns = [desc[0] for desc in cursor.description]
+        results = cursor.fetchall()
+        with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(columns) 
+            writer.writerows(results)
+
+    def _date_query_handler(cursor):
+        csv_path = "/opt/airflow/data/date.csv"
+        columns = [desc[0] for desc in cursor.description]
+        results = cursor.fetchall()
+        with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(columns) 
+            writer.writerows(results)
+
+    # Insert queries
 
     def _insert_runners_query(output_folder:str):
         with open("/opt/airflow/data/insert_runners.sql", "w") as f:
@@ -108,6 +143,48 @@ with DAG(
             f.write(", \n".join(values))
             f.write("\nON CONFLICT (RunnerKey) DO NOTHING;\n")
             f.write("SELECT setval('dimrunner_runnerkey_seq', COALESCE((SELECT MAX(RunnerKey) FROM DimRunner), 0),  true);\n")
+
+    def _insert_weather_query(output_folder:str):
+        with open("/opt/airflow/data/insert_weather.sql", "w") as f:
+            df = pd.read_csv("/opt/airflow/data/weather.csv")
+            f.write(
+                "INSERT INTO DimWeather (WeatherKey, AverageTemperature, Precipitation, Snow, WindSpeed, Pressure, Sun)\n"
+                "VALUES\n"
+            )
+            values = []
+            for row in df.itertuples(index=False) :
+                weather_id = row.weather_id
+                average_temperature = row.t_avg
+                precipitation = row.precipitation
+                snow = row.snow
+                wind_speed = row.wind_speed
+                pressure = row.pressure
+                sun = row.sun
+                values.append(f"({weather_id}, {average_temperature}, {precipitation}, {snow}, {wind_speed}, {pressure}, {sun})")
+            f.write(", \n".join(values))
+            f.write("\nON CONFLICT (WeatherKey) DO NOTHING;\n")
+            f.write("SELECT setval('dimweather_weatherkey_seq', COALESCE((SELECT MAX(WeatherKey) FROM DimWeather), 0),  true);\n")
+
+    def _insert_date_query(output_folder:str):
+        with open("/opt/airflow/data/insert_date.sql", "w") as f:
+            df = pd.read_csv("/opt/airflow/data/date.csv")
+            f.write(
+                "INSERT INTO DimDate (DateKey, FullDate, Year, Month, Day)\n"
+                "VALUES\n"
+            )
+            values = []
+            for row in df.itertuples(index=False) :
+                date_key = row.date_key
+                full_date = row.full_date
+                year = row.year
+                month = row.month
+                day = row.day
+                values.append(f"({date_key}, '{full_date}', {year}, {month}, {day})")
+            f.write(", \n".join(values))
+            f.write("\nON CONFLICT (DateKey) DO NOTHING;\n")
+            f.write("SELECT setval('dimdate_datekey_seq', COALESCE((SELECT MAX(DateKey) FROM DimDate), 0),  true);\n")
+
+    # Operators
 
     create_tables_query = PythonOperator(
         task_id="create_tables_query",
@@ -133,6 +210,22 @@ with DAG(
         },
     )
 
+    extract_weather_query = PythonOperator(
+        task_id="extract_weather_query",
+        python_callable=_extract_weather_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    extract_date_query = PythonOperator(
+        task_id="extract_date_query",
+        python_callable=_extract_date_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
     extract_runners = SQLExecuteQueryOperator(
         task_id="extract_runners",
         conn_id="OLTP",
@@ -141,9 +234,41 @@ with DAG(
         handler=_runners_query_handler,
     )
 
+    extract_weather = SQLExecuteQueryOperator(
+        task_id="extract_weather",
+        conn_id="OLTP",
+        sql="extract_weather.sql",
+        autocommit=True,
+        handler=_weather_query_handler,
+    )
+
+    extract_date = SQLExecuteQueryOperator(
+        task_id="extract_date",
+        conn_id="OLTP",
+        sql="extract_date.sql",
+        autocommit=True,
+        handler=_date_query_handler,
+    )
+
     insert_runners_query = PythonOperator(
         task_id="insert_runners_query",
         python_callable=_insert_runners_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    insert_weather_query = PythonOperator(
+        task_id="insert_weather_query",
+        python_callable=_insert_weather_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    insert_date_query = PythonOperator(
+        task_id="insert_date_query",
+        python_callable=_insert_date_query,
         op_kwargs={
             "output_folder": "/opt/airflow/data",
         },
@@ -157,5 +282,41 @@ with DAG(
         handler=None,
     )
 
-    create_tables_query >> create_tables >> [extract_runners_query]
+    insert_weather = SQLExecuteQueryOperator(
+        task_id="insert_weather",
+        conn_id="OLAP",
+        sql="insert_weather.sql",
+        autocommit=True,
+        handler=None,
+    )
+
+    insert_date = SQLExecuteQueryOperator(
+        task_id="insert_date",
+        conn_id="OLAP",
+        sql="insert_date.sql",
+        autocommit=True,
+        handler=None,
+    )
+
+    insert_weather = SQLExecuteQueryOperator(
+        task_id="insert_weather",
+        conn_id="OLAP",
+        sql="insert_weather.sql",
+        autocommit=True,
+        handler=None,
+    )
+
+    insert_date = SQLExecuteQueryOperator(
+        task_id="insert_date",
+        conn_id="OLAP",
+        sql="insert_date.sql",
+        autocommit=True,
+        handler=None,
+    )
+
+    # DAG
+
+    create_tables_query >> create_tables >> [extract_runners_query, extract_weather_query, extract_date_query]
     extract_runners_query >> extract_runners >> insert_runners_query >> insert_runners
+    extract_weather_query >> extract_weather >> insert_weather_query >> insert_weather
+    extract_date_query >> extract_date >> insert_date_query >> insert_date
