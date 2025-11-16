@@ -285,7 +285,7 @@ with DAG(
     # Operators
     check_db = SQLExecuteQueryOperator(
         task_id="check_db",
-        conn_id="potgres_default",
+        conn_id="postgres_default",
         sql="SELECT 1 FROM pg_database WHERE datname = 'production';",
         autocommit=True,
         handler=_check_db_handler,
@@ -298,7 +298,7 @@ with DAG(
 
     create_db = SQLExecuteQueryOperator(
         task_id="create_db",
-        conn_id="potgres_default",
+        conn_id="postgres_default",
         sql="CREATE DATABASE production;",
         autocommit=True,
         handler=None

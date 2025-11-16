@@ -24,7 +24,7 @@ with DAG(
         row = cursor.fetchone()
         if row is not None:
             return True
-        else:
+        else: 
             return False
         
     def _branch_on_db_existence(ti):
@@ -162,6 +162,7 @@ with DAG(
         print(f"✅ Cleaned weather data saved to: {output_file}")
 
     def _clean_boston():
+        # Preparation
         date_filename = "/opt/airflow/data/boston_date.csv"
         boston_filename = "/opt/airflow/data/boston_data.csv"
 
@@ -172,7 +173,51 @@ with DAG(
         df_date = pd.read_csv(date_filename)
         df_boston = pd.read_csv(boston_filename)
         df_boston.drop(index=df_boston.index[-1],axis=0,inplace=True)
-        
+
+        # Cleaning of df_boston
+        for index, row in df_boston.iterrows():
+            if row["contry_citizenship"] == "United ":
+                df_boston.at[index, "contry_citizenship"] = "USA"
+            if row["country_residence"] == "United ":
+                df_boston.at[index, "country_residence"] = "USA"
+            if pd.isna(row["contry_citizenship"]) and not pd.isna(row["country_residence"]):
+                df_boston.at[index, "contry_citizenship"] = row["country_residence"]
+
+            if pd.isna(row["official_time"]):
+                df_boston.at[index, 'pace'] = None
+                continue
+            parts = row["official_time"].split(':')
+            if len(parts) == 2:
+                h, m, s = 0, int(parts[0]), int(parts[1])
+            elif len(parts) == 3:
+                h, m, s = map(int, parts)
+            else:
+                df_boston.at[index, 'pace'] = None
+                continue
+            if m >= 60 or s >= 60:
+                df_boston.at[index, 'pace'] = None
+                continue
+
+            pace_seconds = (int(h) * 3600 + int(m) * 60 + int(s)) / 42.195
+            df_boston.at[index, 'pace'] = f"{int(pace_seconds // 3600):02d}:{int((pace_seconds % 3600) // 60):02d}:{int(pace_seconds % 60):02d}"
+
+        keep_columns = ["place_overall","official_time","gender_result","edition","display_name","age","gender","contry_citizenship","pace"]
+        df_boston = df_boston[keep_columns]
+        df_boston = df_boston.dropna()
+
+        # table_results.csv
+        df_result = df_boston[["place_overall","official_time","gender_result","edition","display_name","pace"]]
+        df_result = df_result.rename(columns={'place_overall': 'ranking','official_time':'time', 'edition':'year','display_name':'name'})
+        df_result.to_csv(result_filename, index=False)
+
+        # table_runners.csv
+        df_runner = df_boston[["display_name","age","gender","contry_citizenship"]]
+        df_runner = df_runner.rename(columns={'display_name':'name','contry_citizenship':'nationality'})
+        df_runner.drop_duplicates(inplace=True)
+        df_runner.reset_index(drop=True, inplace=True)
+        df_runner.to_csv(runners_filename, index=False)
+
+        # table_marathons.csv
         df_marathon = df_boston[["edition"]].copy()
         df_marathon.drop_duplicates(subset="edition", inplace=True)
         df_marathon.reset_index(drop=True, inplace=True)
@@ -183,12 +228,10 @@ with DAG(
 
         df_date['date'] = pd.to_datetime(df_date['date'])
 
-        # Extract year, month, and day
         df_date['year'] = df_date['date'].dt.year
         df_date['month'] = df_date['date'].dt.month
         df_date['day'] = df_date['date'].dt.day
 
-        # Merge only matching years from df_year
         df_final = df_marathon.merge(df_date, on='year', how='left')
 
         df_final = df_final.rename(columns={'date': 'full_date'})
@@ -197,40 +240,6 @@ with DAG(
         df_final.reset_index(drop=True, inplace=True)
 
         df_final.to_csv(marathons_filename, index=False)
-
-        df_result = df_boston[["place_overall","official_time","gender_result","edition","display_name"]]
-        df_result = df_result.rename(columns={'place_overall': 'ranking','official_time':'time', 'edition':'year','display_name':'name'})
-
-        for index, row in df_result.iterrows():
-            # skip if time is missing
-            if pd.isna(row["time"]):
-                df_result.at[index, 'pace'] = None
-                continue
-
-            parts = row["time"].split(':')
-            # If format is MM:SS, prepend 0 hours
-            if len(parts) == 2:
-                h, m, s = 0, int(parts[0]), int(parts[1])
-            elif len(parts) == 3:
-                h, m, s = map(int, parts)
-            else:
-                # Unexpected format
-                df_result.at[index, 'pace'] = None
-                continue
-
-            pace_seconds = (int(h) * 3600 + int(m) * 60 + int(s)) / 42.195
-            df_result.at[index, 'pace'] = f"{int(pace_seconds // 3600):02d}:{int((pace_seconds % 3600) // 60):02d}:{int(pace_seconds % 60):02d}"
-
-        df_result = df_result.dropna()
-        df_result.to_csv(result_filename, index=False)
-
-        df_runner = df_boston[["display_name","age","gender","contry_citizenship"]]
-        df_runner = df_runner.rename(columns={'display_name':'name','contry_citizenship':'nationality'})
-        df_runner.drop_duplicates(inplace=True)
-        df_runner.reset_index(drop=True, inplace=True)
-        
-        df_runner = df_runner.dropna()
-        df_runner.to_csv(runners_filename, index=False)
 
     def _sort_weather():
         weather_filename = "/opt/airflow/data/cleaned_weather_data.csv"
@@ -270,7 +279,7 @@ with DAG(
                 "   runner_id SERIAL PRIMARY KEY,\n"
                 "   Name VARCHAR(100),\n"
                 "   Age INT,\n"
-                "   Genre VARCHAR(1),\n"
+                "   Gender VARCHAR(1),\n"
                 "   Nationality VARCHAR(50)\n"
                 ");\n"
             )
@@ -279,7 +288,7 @@ with DAG(
                 "   weather_id SERIAL PRIMARY KEY,\n"
                 "   t_avg NUMERIC(3,1),\n"
                 "   precipitation NUMERIC(3,1),\n"
-                "   snow NUMERIC(3,1),\n"
+                "   snow NUMERIC(4,1),\n"
                 "   wind_speed NUMERIC(4,1),\n"
                 "   pressure NUMERIC(5,1),\n"
                 "   sun NUMERIC(5,1),\n"
@@ -292,7 +301,7 @@ with DAG(
                 "   time Time,\n"
                 "   pace Time,\n"
                 "   gender_result INT,\n"
-                "   marathon_id INT REFERENCES Marathons (marathon_id)\n"
+                "   marathon_id INT REFERENCES Marathons (marathon_id),\n"
                 "   runner_id INT REFERENCES Runners (runner_id)\n"
                 ");\n"
             )
@@ -307,13 +316,13 @@ with DAG(
                 "VALUES\n"
             )
             values = []
-            for row in df.itertuples(index=False) : #Change this
-                name = row.name
+            for row in df.itertuples(index=False) :
+                name = row.name.replace("'", "")
                 age = row.age
                 gender = row.gender
-                nationality = row.citizenship
-                values.append(f"({name}', '{age}', '{gender}', '{nationality}')")
-            f.write(", \n".join(values))
+                nationality = row.nationality
+                values.append(f"('{name}', {age}, '{gender}', '{nationality}')")
+            f.write(", \n".join(values) + ";")
 
     def _insert_marathons_query(output_folder:str):
         with open("/opt/airflow/data/insert_marathons_staging.sql", "w") as f:
@@ -323,45 +332,48 @@ with DAG(
                 "VALUES\n"
             )
             values = []
-            for row in df.itertuples(index=False) : #Change this
+            for row in df.itertuples(index=False) : 
                 city = row.city
                 full_date = row.full_date
                 year = row.year
                 month = row.month
                 day = row.day
-                values.append(f"({city}, '{full_date}', '{year}', '{month}', '{day}')")
-            f.write(", \n".join(values))
+                values.append(f"('{city}', '{full_date}', '{year}', '{month}', '{day}')")
+            f.write(", \n".join(values) + ";")
 
-    def _insert_result_query(output_folder:str):
-        with open("/opt/airflow/data/insert_runners_staging.sql", "w") as f:
-            df = pd.read_csv("/opt/airflow/data/table_result.csv")
+    def _insert_result_query(output_folder:str, ti):
+        marathon_dict = ti.xcom_pull(task_ids='get_marathons_id')
+        runner_dict = ti.xcom_pull(task_ids='get_runners_id')
+        with open("/opt/airflow/data/insert_result_staging.sql", "w") as f:
+            df = pd.read_csv("/opt/airflow/data/table_result.csv", thousands=',')
             f.write(
-                "INSERT INTO Result (ranking, time, pace, gender_result)\n"
+                "INSERT INTO Result (marathon_id, runner_id, ranking, time, pace, gender_result)\n"
                 "VALUES\n"
             )
             values = []
             for row in df.itertuples(index=False) : 
                 year = row.year
-                name = row.name
-                ranking = row.ranking
+                name = row.name.replace("'","")
+                ranking = int(row.ranking)
                 time = row.time
                 pace = row.pace
-                gender_result = row.gender_result
-
+                gender_result = int(row.gender_result)
+                marathon_id = marathon_dict.get(str(year))
+                runner_id = runner_dict.get(name)
                 values.append(
                     "("
-                    f"(SELECT id FROM Marathons WHERE year = '{year}'), "
-                    f"(SELECT id FROM Runners WHERE name = '{name}'), "
-                    f"{ranking}, '{time}', '{pace}', '{gender_result}'"
+                    f"{marathon_id}, "
+                    f"{runner_id}, "
+                    f"{ranking}, '{time}', '{pace}', {gender_result}"
                     ")"
                 )
-            f.write(", \n".join(values))
+            f.write(", \n".join(values) + ";")
 
     def _insert_weather_query(output_folder:str):
         with open("/opt/airflow/data/insert_weather_staging.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/table_weather.csv")
             f.write(
-                "INSERT INTO Weather (t_avg, precipitation, pressure, snow, wind_speed, sun)\n"
+                "INSERT INTO Weather (marathon_id, t_avg, precipitation, pressure, snow, wind_speed, sun)\n"
                 "VALUES\n"
             )
             values = []
@@ -376,20 +388,29 @@ with DAG(
                 
                 values.append(
                     "("
-                    f"(SELECT id FROM Marathons WHERE full_date = '{full_date}'), "
-                    f"{t_avg}, '{precipitation}', '{pressure}', '{snow}', "
-                    f"'{wind_speed}', '{sun}'"
+                    f"(SELECT marathon_id FROM Marathons WHERE full_date = '{full_date}'), "
+                    f"{t_avg}, {precipitation}, {pressure}, {snow}, "
+                    f"{wind_speed}, {sun}"
                     ")"
                 )
+            f.write(", \n".join(values) + ";")
 
-            f.write(", \n".join(values))
+    def _store_marathons_id(cursor):
+        rows = cursor.fetchall()
+        marathon_dict = {int(row[0]): int(row[1]) for row in rows}
+        return marathon_dict
+    
+    def _store_runners_id(cursor):    
+        rows = cursor.fetchall()
+        runner_dict = {str(row[0]): int(row[1]) for row in rows}
+        return runner_dict
 
     
     # Operators
 
     check_db = SQLExecuteQueryOperator(
         task_id="check_db",
-        conn_id="potgres_default",
+        conn_id="postgres_default",
         sql="SELECT 1 FROM pg_database WHERE datname = 'staging';",
         autocommit=True,
         handler=_check_db_handler,
@@ -402,7 +423,7 @@ with DAG(
 
     create_db = SQLExecuteQueryOperator(
         task_id="create_db",
-        conn_id="potgres_default",
+        conn_id="postgres_default",
         sql="CREATE DATABASE staging;",
         autocommit=True,
         handler=None
@@ -423,7 +444,7 @@ with DAG(
 
     create_tables = SQLExecuteQueryOperator(
         task_id="create_tables",
-        conn_id="postgres_production",
+        conn_id="postgres_staging",
         sql="create_tables_staging.sql",
         autocommit=True,
         handler=None,
@@ -463,7 +484,7 @@ with DAG(
 
     insert_runners = SQLExecuteQueryOperator(
         task_id="insert_runners",
-        conn_id="OLTP",
+        conn_id="postgres_staging",
         sql="insert_runners_staging.sql",
         autocommit=True,
         handler=None,
@@ -471,15 +492,31 @@ with DAG(
 
     insert_marathons = SQLExecuteQueryOperator(
         task_id="insert_marathons",
-        conn_id="OLTP",
+        conn_id="postgres_staging",
         sql="insert_marathons_staging.sql",
         autocommit=True,
         handler=None,
     )
 
+    get_marathons_id = SQLExecuteQueryOperator(
+        task_id="get_marathons_id",
+        conn_id="postgres_staging",
+        sql="SELECT year, marathon_id FROM Marathons;",
+        autocommit=True,
+        handler=_store_marathons_id,
+    )
+
+    get_runners_id = SQLExecuteQueryOperator(
+        task_id="get_runners_id",
+        conn_id="postgres_staging",
+        sql="SELECT name, runner_id FROM Runners;",
+        autocommit=True,
+        handler=_store_runners_id,
+    )
+
     insert_result = SQLExecuteQueryOperator(
         task_id="insert_result",
-        conn_id="OLTP",
+        conn_id="postgres_staging",
         sql="insert_result_staging.sql",
         autocommit=True,
         handler=None,
@@ -487,7 +524,7 @@ with DAG(
 
     insert_weather = SQLExecuteQueryOperator(
         task_id="insert_weather",
-        conn_id="OLTP",
+        conn_id="postgres_staging",
         sql="insert_weather_staging.sql",
         autocommit=True,
         handler=None,
@@ -495,45 +532,42 @@ with DAG(
     
     
     clean_weather = PythonOperator(
-        task_id=f'_clean_weather',
+        task_id='clean_weather',
         python_callable=_clean_weather
     )
 
-
-    mathieu = SQLExecuteQueryOperator (
-        task_id="mathieu",
-        conn_id="postgres_default",
-        sql="test.sql",
-        autocommit=True,
-    )
-
     get_boston = PythonOperator(
-            task_id=f'_get_boston',
+            task_id='get_boston',
             python_callable=_get_boston
         )
 
     get_marathons_date = PythonOperator(
-            task_id=f'_get_marathons_date',
+            task_id='get_marathons_date',
             python_callable=_get_marathons_date
         )
     
     get_weather = PythonOperator(
-        task_id=f'_get_weather',
+        task_id='get_weather',
         python_callable=_get_weather
     )
 
     clean_boston = PythonOperator(
-        task_id=f"_clean_boston",
+        task_id="clean_boston",
         python_callable=_clean_boston
     )
 
     sort_weather = PythonOperator (
-        task_id=f"_sort_weather",
+        task_id="sort_weather",
         python_callable=_sort_weather
     )
 
-    join_tables = EmptyOperator(
-        task_id="join_tables",
+    merge = EmptyOperator(
+        task_id="merge",
+        trigger_rule="none_failed",
+    )
+
+    end = EmptyOperator(
+        task_id="end",
         trigger_rule="none_failed",
     )
 
@@ -543,7 +577,8 @@ with DAG(
     sort_weather >> [insert_runners_query, insert_marathons_query]
     insert_runners_query >> insert_runners
     insert_marathons_query >> insert_marathons
-    [insert_runners, insert_marathons] >> [insert_result_query, insert_weather_query]
-    insert_result_query >> insert_result
+    [insert_runners, insert_marathons] >> merge
+    merge >> [get_marathons_id, insert_weather_query]
+    get_marathons_id >> get_runners_id >> insert_result_query >> insert_result
     insert_weather_query >> insert_weather
-    [insert_result, insert_weather] >> join_tables
+    [insert_result, insert_weather] >> end
