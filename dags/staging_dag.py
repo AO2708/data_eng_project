@@ -223,8 +223,8 @@ with DAG(
         df_marathon.reset_index(drop=True, inplace=True)
         df_marathon.rename(columns={'edition': 'year'}, inplace=True)
 
-        df_date["marathon"].str.replace(' Marathon', '', regex=False)
-        df_date.rename(columns={'marathon': 'city'}, inplace=True)
+        df_date.drop(columns=["marathon", "edition"])
+        df_date.rename(columns={'location': 'city'}, inplace=True)
 
         df_date['date'] = pd.to_datetime(df_date['date'])
 

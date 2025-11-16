@@ -53,7 +53,7 @@ with DAG(
                 "   RunnerKey SERIAL PRIMARY KEY,\n"
                 "   Name VARCHAR(100),\n"
                 "   Age INT,\n"
-                "   Genre VARCHAR(1),\n"
+                "   Gender VARCHAR(1),\n"
                 "   Nationality VARCHAR(50)\n"
                 ");\n"
             )
@@ -108,7 +108,7 @@ with DAG(
     def _extract_location_query(output_folder:str):
         with open("/opt/airflow/data/extract_location.sql", "w") as f:
             f.write(
-                "SELECT city FROM marathons ;\n"
+                "SELECT DISTINCT city FROM marathons ;\n"
             )
 
     def _extract_race_result_query(output_folder:str):
@@ -116,12 +116,13 @@ with DAG(
             f.write(
                 "SELECT \n"
                 "   m.marathon_id, \n"
+                "   m.city, \n"
                 "   run.runner_id, \n"
                 "   w.weather_id, \n"
-                "   r.overall_ranking, \n"
-                "   r.gender_ranking, \n"
+                "   r.ranking, \n"
+                "   r.gender_result, \n"
                 "   r.time, \n"
-                "   r.pace, \n"
+                "   r.pace \n"
                 "FROM marathons m\n"
                 "JOIN weather w ON m.marathon_id = w.marathon_id\n"
                 "JOIN result r ON m.marathon_id = r.marathon_id\n"
@@ -181,17 +182,17 @@ with DAG(
         with open("/opt/airflow/data/insert_runners.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/runners.csv")
             f.write(
-                "INSERT INTO DimRunner (RunnerKey, Name, Age, Genre, Nationality)\n"
+                "INSERT INTO DimRunner (RunnerKey, Name, Age, Gender, Nationality)\n"
                 "VALUES\n"
             )
             values = []
             for row in df.itertuples(index=False) :
-                runner_id = row.runnerid
+                runner_id = row.runner_id
                 name = row.name
                 age = row.age
-                genre = row.genre
+                gender = row.gender
                 nationality = row.nationality
-                values.append(f"({runner_id}, '{name}', '{age}', '{genre}', '{nationality}')")
+                values.append(f"({runner_id}, '{name}', '{age}', '{gender}', '{nationality}')")
             f.write(", \n".join(values))
             f.write("\nON CONFLICT (RunnerKey) DO NOTHING;\n")
             f.write("SELECT setval('dimrunner_runnerkey_seq', COALESCE((SELECT MAX(RunnerKey) FROM DimRunner), 0),  true);\n")
@@ -200,7 +201,7 @@ with DAG(
         with open("/opt/airflow/data/insert_weather.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/weather.csv")
             f.write(
-                "INSERT INTO DimWeather (WeatherKey, AverageTemperature, Precipitation, Snow, WindSpeed, Pressure, Sun)\n"
+                "INSERT INTO DimWeather (WeatherKey, AverageTemperature, Precipitation, Snow, WindSpeed, Pressure, SunTime)\n"
                 "VALUES\n"
             )
             values = []
@@ -226,7 +227,7 @@ with DAG(
             )
             values = []
             for row in df.itertuples(index=False) :
-                date_key = row.date_key
+                date_key = row.marathon_id
                 full_date = row.full_date
                 year = row.year
                 month = row.month
@@ -253,7 +254,7 @@ with DAG(
             f.write(", \n".join(values))
             f.write("\nON CONFLICT (LocationKey) DO NOTHING;\n")
             f.write("SELECT setval('dimlocation_locationkey_seq', COALESCE((SELECT MAX(LocationKey) FROM DimLocation), 0),  true);\n")
-        mapping_df = pd.DataFrame(mapping_city_key.items(), columns=["LocationKey", "City"])
+        mapping_df = pd.DataFrame(mapping_city_key.items(), columns=["City", "LocationKey"])
         mapping_df.to_csv(f"/opt/airflow/data/marathon_location_mapping.csv", index=False)
 
     def _insert_race_result_query(output_folder:str):
@@ -274,11 +275,11 @@ with DAG(
                 locationkey = mapping_dict.get(row.city, None)
                 runnerkey = row.runner_id
                 weatherkey = row.weather_id
-                overallranking = row.overall_ranking
-                genderranking = row.gender_ranking
+                overallranking = row.ranking
+                genderranking = row.gender_result
                 time = row.time
                 pace = row.pace
-                values.append(f"({datekey}, {locationkey}, {runnerkey}, {weatherkey}, {overallranking}, {genderranking}, {time}, {pace})")
+                values.append(f"({datekey}, {locationkey}, {runnerkey}, {weatherkey}, {overallranking}, {genderranking}, '{time}', '{pace}')")
             f.write(", \n".join(values))
             f.write("\nON CONFLICT (RaceResultId) DO NOTHING;\n")
 
@@ -367,7 +368,7 @@ with DAG(
 
     extract_runners = SQLExecuteQueryOperator(
         task_id="extract_runners",
-        conn_id="postgres_production",
+        conn_id="postgres_staging",
         sql="extract_runners.sql",
         autocommit=True,
         handler=_runners_query_handler,
@@ -375,7 +376,7 @@ with DAG(
 
     extract_weather = SQLExecuteQueryOperator(
         task_id="extract_weather",
-        conn_id="postgres_production",
+        conn_id="postgres_staging",
         sql="extract_weather.sql",
         autocommit=True,
         handler=_weather_query_handler,
@@ -383,7 +384,7 @@ with DAG(
 
     extract_date = SQLExecuteQueryOperator(
         task_id="extract_date",
-        conn_id="postgres_production",
+        conn_id="postgres_staging",
         sql="extract_date.sql",
         autocommit=True,
         handler=_date_query_handler,
@@ -391,7 +392,7 @@ with DAG(
 
     extract_location = SQLExecuteQueryOperator(
         task_id="extract_location",
-        conn_id="postgres_production",
+        conn_id="postgres_staging",
         sql="extract_location.sql",
         autocommit=True,
         handler=_location_query_handler,
@@ -399,7 +400,7 @@ with DAG(
 
     extract_race_result = SQLExecuteQueryOperator(
         task_id="extract_race_result",
-        conn_id="postgres_production",
+        conn_id="postgres_staging",
         sql="race_result_extract.sql",
         autocommit=True,
         handler=_race_result_query_handler,
@@ -447,7 +448,7 @@ with DAG(
 
     insert_runners = SQLExecuteQueryOperator(
         task_id="insert_runners",
-        conn_id="OLAP",
+        conn_id="postgres_production",
         sql="insert_runners.sql",
         autocommit=True,
         handler=None,
@@ -455,7 +456,7 @@ with DAG(
 
     insert_weather = SQLExecuteQueryOperator(
         task_id="insert_weather",
-        conn_id="OLAP",
+        conn_id="postgres_production",
         sql="insert_weather.sql",
         autocommit=True,
         handler=None,
@@ -463,7 +464,7 @@ with DAG(
 
     insert_date = SQLExecuteQueryOperator(
         task_id="insert_date",
-        conn_id="OLAP",
+        conn_id="postgres_production",
         sql="insert_date.sql",
         autocommit=True,
         handler=None,
@@ -471,7 +472,7 @@ with DAG(
 
     insert_location = SQLExecuteQueryOperator(
         task_id="insert_location",
-        conn_id="OLAP",
+        conn_id="postgres_production",
         sql="insert_location.sql",
         autocommit=True,
         handler=None,
@@ -479,7 +480,7 @@ with DAG(
 
     insert_race_result = SQLExecuteQueryOperator(
         task_id="insert_race_result",
-        conn_id="OLAP",
+        conn_id="postgres_production",
         sql="insert_race_result.sql",
         autocommit=True,
         handler=None,
