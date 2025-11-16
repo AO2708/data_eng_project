@@ -1,15 +1,12 @@
 import pendulum
 import pandas as pd
-from meteostat import Point, Daily
 import csv
-from datetime import datetime
-import json
 from airflow import DAG
-from airflow.operators.bash import BashOperator
+from airflow.operators.empty import EmptyOperator
+from airflow.utils.trigger_rule import TriggerRule
 from airflow.providers.mongo.hooks.mongo import MongoHook
-from airflow.operators.python import PythonOperator
+from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
-from pymongo.errors import BulkWriteError
 
 START_DATE = pendulum.datetime(2025, 10, 20, tz="UTC")
 
@@ -23,7 +20,21 @@ with DAG(
     tags=["staging"]
 ) as dag :
     
-    def get_boston_data():
+    def _check_db_handler(cursor):
+        row = cursor.fetchone()
+        if row is not None:
+            return True
+        else:
+            return False
+        
+    def _branch_on_db_existence(ti):
+        db_exists = ti.xcom_pull(task_ids="check_db")
+        if db_exists:
+            return "skip_create"
+        else:
+            return "create_db"
+    
+    def _get_boston():
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
         db = client['project']
@@ -55,7 +66,7 @@ with DAG(
 
         client.close()
 
-    def get_marathons_date_data():
+    def _get_marathons_date():
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
         db = client['project']
@@ -87,7 +98,7 @@ with DAG(
 
         client.close()
 
-    def get_weather_data():
+    def _get_weather():
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
         db = client['project']
@@ -119,7 +130,7 @@ with DAG(
 
         client.close()
     
-    def clean_weather_data():
+    def _clean_weather():
         input_file = "/opt/airflow/data/weather_data.csv"
         output_file = "/opt/airflow/data/cleaned_weather_data.csv"
 
@@ -150,8 +161,8 @@ with DAG(
 
         print(f"✅ Cleaned weather data saved to: {output_file}")
 
-    def clean_boston_data():
-        date_filename = "/opt/airflow/data/marathons_date.csv"
+    def _clean_boston():
+        date_filename = "/opt/airflow/data/boston_date.csv"
         boston_filename = "/opt/airflow/data/boston_data.csv"
 
         marathons_filename = "/opt/airflow/data/table_marathons.csv"
@@ -214,14 +225,14 @@ with DAG(
         df_result.to_csv(result_filename, index=False)
 
         df_runner = df_boston[["display_name","age","gender","contry_citizenship"]]
-        df_runner = df_runner.rename(columns={'display_name':'name','contry_citizenship':'citizenship'})
+        df_runner = df_runner.rename(columns={'display_name':'name','contry_citizenship':'nationality'})
         df_runner.drop_duplicates(inplace=True)
         df_runner.reset_index(drop=True, inplace=True)
         
         df_runner = df_runner.dropna()
         df_runner.to_csv(runners_filename, index=False)
 
-    def sort_weather_data():
+    def _sort_weather():
         weather_filename = "/opt/airflow/data/cleaned_weather_data.csv"
         date_filename = "/opt/airflow/data/table_marathons.csv"
 
@@ -241,10 +252,251 @@ with DAG(
         # Save to CSV
         df_final.to_csv(output_filename, index=False)
 
+    # Create table query
+    def _create_tables_query():
+        with open("/opt/airflow/data/create_tables_staging.sql", "w") as f:
+            f.write(
+                "CREATE TABLE IF NOT EXISTS Marathons(\n"
+                "   marathon_id SERIAL PRIMARY KEY,\n"
+                "   city VARCHAR(100),\n"
+                "   full_date DATE NOT NULL,\n"
+                "   year INT,\n"
+                "   month INT,\n"
+                "   day INT\n"
+                ");\n"
+            )
+            f.write(
+                "CREATE TABLE IF NOT EXISTS Runners(\n"
+                "   runner_id SERIAL PRIMARY KEY,\n"
+                "   Name VARCHAR(100),\n"
+                "   Age INT,\n"
+                "   Genre VARCHAR(1),\n"
+                "   Nationality VARCHAR(50)\n"
+                ");\n"
+            )
+            f.write(
+                "CREATE TABLE IF NOT EXISTS Weather(\n"
+                "   weather_id SERIAL PRIMARY KEY,\n"
+                "   t_avg NUMERIC(3,1),\n"
+                "   precipitation NUMERIC(3,1),\n"
+                "   snow NUMERIC(3,1),\n"
+                "   wind_speed NUMERIC(4,1),\n"
+                "   pressure NUMERIC(5,1),\n"
+                "   sun NUMERIC(5,1),\n"
+                "   marathon_id INT REFERENCES Marathons (marathon_id)\n"
+                ");\n"
+            )
+            f.write(
+                "CREATE TABLE IF NOT EXISTS Result(\n"
+                "   ranking INT,\n"
+                "   time Time,\n"
+                "   pace Time,\n"
+                "   gender_result INT,\n"
+                "   marathon_id INT REFERENCES Marathons (marathon_id)\n"
+                "   runner_id INT REFERENCES Runners (runner_id)\n"
+                ");\n"
+            )
 
+    # Insert queries
+
+    def _insert_runners_query(output_folder:str):
+        with open("/opt/airflow/data/insert_runners_staging.sql", "w") as f:
+            df = pd.read_csv("/opt/airflow/data/table_runners.csv")
+            f.write(
+                "INSERT INTO Runners (name, age, gender, nationality)\n"
+                "VALUES\n"
+            )
+            values = []
+            for row in df.itertuples(index=False) : #Change this
+                name = row.name
+                age = row.age
+                gender = row.gender
+                nationality = row.citizenship
+                values.append(f"({name}', '{age}', '{gender}', '{nationality}')")
+            f.write(", \n".join(values))
+
+    def _insert_marathons_query(output_folder:str):
+        with open("/opt/airflow/data/insert_marathons_staging.sql", "w") as f:
+            df = pd.read_csv("/opt/airflow/data/table_marathons.csv")
+            f.write(
+                "INSERT INTO Marathons (city, full_date, year, month, day)\n"
+                "VALUES\n"
+            )
+            values = []
+            for row in df.itertuples(index=False) : #Change this
+                city = row.city
+                full_date = row.full_date
+                year = row.year
+                month = row.month
+                day = row.day
+                values.append(f"({city}, '{full_date}', '{year}', '{month}', '{day}')")
+            f.write(", \n".join(values))
+
+    def _insert_result_query(output_folder:str):
+        with open("/opt/airflow/data/insert_runners_staging.sql", "w") as f:
+            df = pd.read_csv("/opt/airflow/data/table_result.csv")
+            f.write(
+                "INSERT INTO Result (ranking, time, pace, gender_result)\n"
+                "VALUES\n"
+            )
+            values = []
+            for row in df.itertuples(index=False) : 
+                year = row.year
+                name = row.name
+                ranking = row.ranking
+                time = row.time
+                pace = row.pace
+                gender_result = row.gender_result
+
+                values.append(
+                    "("
+                    f"(SELECT id FROM Marathons WHERE year = '{year}'), "
+                    f"(SELECT id FROM Runners WHERE name = '{name}'), "
+                    f"{ranking}, '{time}', '{pace}', '{gender_result}'"
+                    ")"
+                )
+            f.write(", \n".join(values))
+
+    def _insert_weather_query(output_folder:str):
+        with open("/opt/airflow/data/insert_weather_staging.sql", "w") as f:
+            df = pd.read_csv("/opt/airflow/data/table_weather.csv")
+            f.write(
+                "INSERT INTO Weather (t_avg, precipitation, pressure, snow, wind_speed, sun)\n"
+                "VALUES\n"
+            )
+            values = []
+            for row in df.itertuples(index=False) : 
+                full_date = row.date
+                t_avg = row.tavg
+                precipitation = row.prcp
+                pressure = row.pres
+                snow = row.snow
+                wind_speed = row.wspd
+                sun = row.tsun
+                
+                values.append(
+                    "("
+                    f"(SELECT id FROM Marathons WHERE full_date = '{full_date}'), "
+                    f"{t_avg}, '{precipitation}', '{pressure}', '{snow}', "
+                    f"'{wind_speed}', '{sun}'"
+                    ")"
+                )
+
+            f.write(", \n".join(values))
+
+    
+    # Operators
+
+    check_db = SQLExecuteQueryOperator(
+        task_id="check_db",
+        conn_id="potgres_default",
+        sql="SELECT 1 FROM pg_database WHERE datname = 'staging';",
+        autocommit=True,
+        handler=_check_db_handler,
+    )
+
+    branch = BranchPythonOperator(
+        task_id="branch_on_db_existence",
+        python_callable=_branch_on_db_existence,
+    )
+
+    create_db = SQLExecuteQueryOperator(
+        task_id="create_db",
+        conn_id="potgres_default",
+        sql="CREATE DATABASE staging;",
+        autocommit=True,
+        handler=None
+    )
+
+    skip_create = EmptyOperator(
+        task_id="skip_create"
+    )
+
+    create_tables_query = PythonOperator(
+        task_id="create_tables_query",
+        python_callable=_create_tables_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
+    )
+
+    create_tables = SQLExecuteQueryOperator(
+        task_id="create_tables",
+        conn_id="postgres_production",
+        sql="create_tables_staging.sql",
+        autocommit=True,
+        handler=None,
+    )
+
+    insert_runners_query = PythonOperator(
+        task_id="insert_runners_query",
+        python_callable=_insert_runners_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    insert_marathons_query = PythonOperator(
+        task_id="insert_marathons_query",
+        python_callable=_insert_marathons_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    insert_result_query = PythonOperator(
+        task_id="insert_result_query",
+        python_callable=_insert_result_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    insert_weather_query = PythonOperator(
+        task_id="insert_weather_query",
+        python_callable=_insert_weather_query,
+        op_kwargs={
+            "output_folder": "/opt/airflow/data",
+        },
+    )
+
+    insert_runners = SQLExecuteQueryOperator(
+        task_id="insert_runners",
+        conn_id="OLTP",
+        sql="insert_runners_staging.sql",
+        autocommit=True,
+        handler=None,
+    )
+
+    insert_marathons = SQLExecuteQueryOperator(
+        task_id="insert_marathons",
+        conn_id="OLTP",
+        sql="insert_marathons_staging.sql",
+        autocommit=True,
+        handler=None,
+    )
+
+    insert_result = SQLExecuteQueryOperator(
+        task_id="insert_result",
+        conn_id="OLTP",
+        sql="insert_result_staging.sql",
+        autocommit=True,
+        handler=None,
+    )
+
+    insert_weather = SQLExecuteQueryOperator(
+        task_id="insert_weather",
+        conn_id="OLTP",
+        sql="insert_weather_staging.sql",
+        autocommit=True,
+        handler=None,
+    )
+    
+    
     clean_weather = PythonOperator(
-        task_id=f'clean_weather_data',
-        python_callable=clean_weather_data
+        task_id=f'_clean_weather',
+        python_callable=_clean_weather
     )
 
 
@@ -256,29 +508,42 @@ with DAG(
     )
 
     get_boston = PythonOperator(
-            task_id=f'get_boston_data',
-            python_callable=get_boston_data
+            task_id=f'_get_boston',
+            python_callable=_get_boston
         )
 
     get_marathons_date = PythonOperator(
-            task_id=f'get_marathons_date_data',
-            python_callable=get_marathons_date_data
+            task_id=f'_get_marathons_date',
+            python_callable=_get_marathons_date
         )
     
     get_weather = PythonOperator(
-        task_id=f'get_weather_data',
-        python_callable=get_weather_data
+        task_id=f'_get_weather',
+        python_callable=_get_weather
     )
 
     clean_boston = PythonOperator(
-        task_id=f"clean_boston_data",
-        python_callable=clean_boston_data
+        task_id=f"_clean_boston",
+        python_callable=_clean_boston
     )
 
     sort_weather = PythonOperator (
-        task_id=f"sort_weather_data",
-        python_callable=sort_weather_data
+        task_id=f"_sort_weather",
+        python_callable=_sort_weather
     )
 
-    ## get_boston >> get_marathons_date >> get_weather >> clean_weather >> 
-    clean_boston >> sort_weather
+    join_tables = EmptyOperator(
+        task_id="join_tables",
+        trigger_rule="none_failed",
+    )
+
+    check_db >> branch >> [create_db, skip_create] >> create_tables_query
+    create_tables_query >> create_tables >> [get_boston, get_marathons_date, get_weather]
+    [get_boston, get_marathons_date, get_weather] >> clean_weather >> clean_boston >> sort_weather 
+    sort_weather >> [insert_runners_query, insert_marathons_query]
+    insert_runners_query >> insert_runners
+    insert_marathons_query >> insert_marathons
+    [insert_runners, insert_marathons] >> [insert_result_query, insert_weather_query]
+    insert_result_query >> insert_result
+    insert_weather_query >> insert_weather
+    [insert_result, insert_weather] >> join_tables
