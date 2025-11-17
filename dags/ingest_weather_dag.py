@@ -34,9 +34,11 @@ with DAG(
         all_files = glob.glob("/opt/airflow/data/*_weather.json")
         df_list = []
         for filename in all_files:
+            city = os.path.basename(filename).split("_weather.json")[0]
             with open(filename, 'r') as f:
                 data = json.load(f)
                 df = pd.json_normalize(data)
+                df["ID"] = city
                 df_list.append(df)
         merged_df = pd.concat(df_list, ignore_index=True)
         data_to_insert = merged_df.to_dict(orient='records')
