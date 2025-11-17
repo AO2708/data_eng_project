@@ -117,6 +117,9 @@ with DAG(
             if "_id" in fieldnames:
                 fieldnames.remove("_id")
 
+            if "ID" in fieldnames:
+                fieldnames.remove("ID")
+
             # 5. Write to CSV
             with open("/opt/airflow/data/weather_data.csv", "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -124,6 +127,7 @@ with DAG(
                 for doc in documents:
                     # Remove _id or convert ObjectId to string if needed
                     doc.pop("_id", None)
+                    doc.pop("ID",None)
                     writer.writerow(doc)
 
         print("✅ Collection exported to weather_data.csv")
@@ -206,7 +210,7 @@ with DAG(
         df_boston = df_boston.dropna()
 
         # table_results.csv
-        df_result = df_boston[["place_overall","official_time","gender_result","edition","display_name","pace"]]
+        df_result = df_boston[["place_overall","official_time","gender_result","edition","display_name","age","pace"]]
         df_result = df_result.rename(columns={'place_overall': 'ranking','official_time':'time', 'edition':'year','display_name':'name'})
         df_result.to_csv(result_filename, index=False)
 
@@ -271,7 +275,8 @@ with DAG(
                 "   full_date DATE NOT NULL,\n"
                 "   year INT,\n"
                 "   month INT,\n"
-                "   day INT\n"
+                "   day INT,\n"
+                "   CONSTRAINT city_year_unique UNIQUE(city, year)\n"
                 ");\n"
             )
             f.write(
@@ -280,7 +285,8 @@ with DAG(
                 "   Name VARCHAR(100),\n"
                 "   Age INT,\n"
                 "   Gender VARCHAR(1),\n"
-                "   Nationality VARCHAR(50)\n"
+                "   Nationality VARCHAR(50),\n"
+                "   CONSTRAINT name_age_unique UNIQUE(Name, Age)\n"
                 ");\n"
             )
             f.write(
@@ -292,7 +298,8 @@ with DAG(
                 "   wind_speed NUMERIC(4,1),\n"
                 "   pressure NUMERIC(5,1),\n"
                 "   sun NUMERIC(5,1),\n"
-                "   marathon_id INT REFERENCES Marathons (marathon_id)\n"
+                "   marathon_id INT REFERENCES Marathons (marathon_id),\n"
+                "   CONSTRAINT marathon_id_unique UNIQUE(marathon_id)\n"
                 ");\n"
             )
             f.write(
@@ -302,7 +309,8 @@ with DAG(
                 "   pace Time,\n"
                 "   gender_result INT,\n"
                 "   marathon_id INT REFERENCES Marathons (marathon_id),\n"
-                "   runner_id INT REFERENCES Runners (runner_id)\n"
+                "   runner_id INT REFERENCES Runners (runner_id),\n"
+                "   CONSTRAINT marathon_id_runner_id_unique UNIQUE(marathon_id, runner_id)\n"
                 ");\n"
             )
 
@@ -322,7 +330,8 @@ with DAG(
                 gender = row.gender
                 nationality = row.nationality
                 values.append(f"('{name}', {age}, '{gender}', '{nationality}')")
-            f.write(", \n".join(values) + ";")
+            f.write(", \n".join(values))
+            f.write("\nON CONFLICT (name, age) DO NOTHING;\n")
 
     def _insert_marathons_query(output_folder:str):
         with open("/opt/airflow/data/insert_marathons_staging.sql", "w") as f:
@@ -339,7 +348,8 @@ with DAG(
                 month = row.month
                 day = row.day
                 values.append(f"('{city}', '{full_date}', '{year}', '{month}', '{day}')")
-            f.write(", \n".join(values) + ";")
+            f.write(", \n".join(values))
+            f.write("\nON CONFLICT (city, year) DO NOTHING;\n")
 
     def _insert_result_query(output_folder:str, ti):
         marathon_dict = ti.xcom_pull(task_ids='get_marathons_id')
@@ -354,12 +364,13 @@ with DAG(
             for row in df.itertuples(index=False) : 
                 year = row.year
                 name = row.name.replace("'","")
+                age = int(row.age)
                 ranking = int(row.ranking)
                 time = row.time
                 pace = row.pace
                 gender_result = int(row.gender_result)
                 marathon_id = marathon_dict.get(str(year))
-                runner_id = runner_dict.get(name)
+                runner_id = runner_dict.get(f"{name}_{age}")
                 values.append(
                     "("
                     f"{marathon_id}, "
@@ -367,7 +378,8 @@ with DAG(
                     f"{ranking}, '{time}', '{pace}', {gender_result}"
                     ")"
                 )
-            f.write(", \n".join(values) + ";")
+            f.write(", \n".join(values))
+            f.write("\nON CONFLICT (marathon_id, runner_id) DO NOTHING;\n")
 
     def _insert_weather_query(output_folder:str):
         with open("/opt/airflow/data/insert_weather_staging.sql", "w") as f:
@@ -393,7 +405,8 @@ with DAG(
                     f"{wind_speed}, {sun}"
                     ")"
                 )
-            f.write(", \n".join(values) + ";")
+            f.write(", \n".join(values))
+            f.write("\nON CONFLICT (marathon_id) DO NOTHING;\n")
 
     def _store_marathons_id(cursor):
         rows = cursor.fetchall()
@@ -402,7 +415,7 @@ with DAG(
     
     def _store_runners_id(cursor):    
         rows = cursor.fetchall()
-        runner_dict = {str(row[0]): int(row[1]) for row in rows}
+        runner_dict = {f"{row[0]}_{row[1]}": row[2] for row in rows}
         return runner_dict
 
     
@@ -509,7 +522,7 @@ with DAG(
     get_runners_id = SQLExecuteQueryOperator(
         task_id="get_runners_id",
         conn_id="postgres_staging",
-        sql="SELECT name, runner_id FROM Runners;",
+        sql="SELECT name, age, runner_id FROM Runners;",
         autocommit=True,
         handler=_store_runners_id,
     )
