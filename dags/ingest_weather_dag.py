@@ -67,24 +67,25 @@ with DAG(
         print(start,end)
 
         for city_name, location in cities.items():
-            data = Daily(location, start, end)
-            data = data.fetch()
-
             filename = "/opt/airflow/data/" + city_name.lower() + "_weather.json"
-            
-            try:
-                os.remove(filename)
-                print(f"File '{filename}' has been deleted successfully.")
-            except FileNotFoundError:
-                print(f"File '{filename}' not found.")
-            except PermissionError:
-                print(f"Permission denied to delete the file '{filename}'.")
+            try :
+                data = Daily(location, start, end)
+                data = data.fetch()
+                try:
+                    os.remove(filename)
+                    print(f"File '{filename}' has been deleted successfully.")
+                except FileNotFoundError:
+                    print(f"File '{filename}' not found.")
+                except PermissionError:
+                    print(f"Permission denied to delete the file '{filename}'.")
+                except Exception as e:
+                    print(f"Error occurred while deleting the file: {e}")
+
+                data.to_json(filename)
+                print(f"Saved data for {city_name} in {filename}")
             except Exception as e:
-                print(f"Error occurred while deleting the file: {e}")
-
-            data.to_json(filename)
-            print(f"Saved data for {city_name} in {filename}")
-
+                print(f"[WARNING] Unable to fetch data for {city_name}: {e}")
+                print(f"[INFO] Keeping existing file '{filename}'")
 
     run_weather_script = PythonOperator(
         task_id="run_weather_script",

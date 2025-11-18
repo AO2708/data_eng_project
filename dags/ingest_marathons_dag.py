@@ -49,7 +49,8 @@ with DAG(
             task_id=f"get_spreadsheet_{year}",
             bash_command=(
                 f"curl -fsSL https://raw.githubusercontent.com/adrian3/Boston-Marathon-Data-Project/refs/heads/master/results{year}.csv "
-                f"--output /opt/airflow/data/{year}_marathons_data.csv"
+                f"--output /opt/airflow/data/{year}_marathons_data.csv ||"
+                f"echo '[WARNING] Failed to download {year} data, keeping existing file if present'"
             )
         )
 

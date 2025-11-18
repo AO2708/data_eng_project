@@ -52,29 +52,33 @@ with DAG(
 ) as dag :
 
     def extract_wikidata_marathon_date(sparql_endpoint, query_str, **context):
-        sparql.setQuery(query)
-        sparql.setReturnFormat(JSON)
-        results = sparql.query().convert()
+        filename = "/opt/airflow/data/major_marathons_date_data.csv"
+        try :
+            sparql.setQuery(query)
+            sparql.setReturnFormat(JSON)
+            results = sparql.query().convert()
 
-        # --- Parse results ---
-        data = []
-        for r in results["results"]["bindings"]:
-            date_str = r["date"]["value"]
-            try:
-                iso_date = datetime.fromisoformat(date_str.replace("Z", "+00:00")).date().isoformat()
-            except Exception:
-                iso_date = date_str  # fallback
+            # --- Parse results ---
+            data = []
+            for r in results["results"]["bindings"]:
+                date_str = r["date"]["value"]
+                try:
+                    iso_date = datetime.fromisoformat(date_str.replace("Z", "+00:00")).date().isoformat()
+                except Exception:
+                    iso_date = date_str  # fallback
 
-            data.append({
-                "marathon": r["marathonLabel"]["value"],
-                "edition": r["editionLabel"]["value"],
-                "date": iso_date,
-                "location": r.get("locationLabel", {}).get("value"),
-            })
+                data.append({
+                    "marathon": r["marathonLabel"]["value"],
+                    "edition": r["editionLabel"]["value"],
+                    "date": iso_date,
+                    "location": r.get("locationLabel", {}).get("value"),
+                })
 
-        df = pd.DataFrame(data)
-        df.to_csv("/opt/airflow/data/major_marathons_date_data.csv", index=False)
-
+            df = pd.DataFrame(data)
+            df.to_csv(filename, index=False)
+        except Exception as e:
+            print(f"[WARNING] Unable to fetch marathon data: {e}")
+            print(f"[INFO] Keeping existing file '{filename}'")
 
 
     def insert_marathons_date_data(**context):
