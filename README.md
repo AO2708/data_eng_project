@@ -17,7 +17,6 @@ Project [DATA Engineering](https://www.riccardotommasini.com/courses/dataeng-ins
    - [Production Pipeline](#production-pipeline)
 6. [Queries](#queries)
 7. [Requirements](#requirements)
-8. [Note for Students](#note-for-students)
 
 ## Collaborators
 - Pitard-Bouet Aodren
@@ -57,14 +56,3 @@ Concretely, the notebook allows the user to :
 ## Queries 
 
 ## Requirements
-
-## Note for Students
-
-* Clone the created repository offline;
-* Add your name and surname into the Readme file and your teammates as collaborators
-* Complete the field above after project is approved
-* Make any changes to your repository according to the specific assignment;
-* Ensure code reproducibility and instructions on how to replicate the results;
-* Add an open-source license, e.g., Apache 2.0;
-* README is automatically converted into pdf
-
