@@ -46,7 +46,7 @@ Concretely, the notebook allows the user to :
 (TODO : Put a schema with the technologies used)
 
 ### Input Datasets
-**Boston Marathons Race Results**  
+**Boston Marathons Race Results : First Dataset**  
 We are fetching the Boston Marathons race results from 2015 to 2019 from the github repository https://github.com/adrian3/Boston-Marathon-Data-Project. For each year, a CSV file is retrieved containing the results of each participant.  
 The structure of the CSV file is as follows (example showing the header and the first two lines of the 2019 CSV file) :  
 
@@ -57,15 +57,15 @@ The structure of the CSV file is as follows (example showing the header and the 
 
 As you can see, there are missing and NULL values in the data but we will explain the data treatment process in the staging pipeline section.
 
-**Boston Marathon Official Dates**  
-As shown in the previous example, the race results data only contains the year of each Boston Marathon edition. However, to match the race results with weather conditions, we need the exact date of each edition. To achieve this, we query Wikidata using SPARQL and extract the response into a CSV file with the following structure (example showing the header and the first two lines) :
+**Boston Marathon Official Dates : Complementary Dataset**  
+As shown in the previous example, the race results data only contains the year of each Boston Marathon edition from 1897 to 2022. However, to match the race results with weather conditions, we need the exact date of each edition. To achieve this, we query Wikidata using SPARQL and extract the response into a CSV file with the following structure (example showing the header and the first two lines) :
 
 | marathon | edition | date | location |
 |---------------|-----|------|-----|
 | Boston Marathon | 1897 Boston Marathon | 1897-04-19 | Boston |
 | Boston Marathon | 1898 Boston Marathon | 1898-04-19 | Boston |
 
-**Weather Data**  
+**Weather Data : Second Dataset**  
 We are fetching the weather data for Boston for each day from January 1st, 2015 to December 31st, 2019. To achieve this, we are using the Python _meteostat_ library and storing the response into a JSON file. _Meteostat_ is an open-source Python library that provides easy access to historical weather and climate data from weather stations worldwide, allowing us to retrieve meteorological observations : average temperature (tavg), minimum temperature (tmin), maximum temperature (tmax), precipitation (prcp), snow depth (snow), wind direction (wdir), wind speed (wspd), wind peak gust (wpgt), atmospheric pressure (pres) and sunshine duration (tsun).  
 The structure of the JSON file is as follows (partial view shown as the full file contains 1,826 daily records for each parameter) :
 ```json
