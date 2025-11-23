@@ -8,8 +8,6 @@ from pymongo.errors import BulkWriteError
 
 START_DATE = pendulum.datetime(2025, 10, 20, tz="UTC")
 
-YEARS = [2019, 2018, 2017, 2016, 2015, 2014]
-
 with DAG(
     dag_id="ingest_marathons",
     start_date=START_DATE,
@@ -43,7 +41,7 @@ with DAG(
 
         client.close()
 
-    for year in YEARS:
+    for year in range(2000, 2020):
 
         get_spreadsheet = BashOperator(
             task_id=f"get_spreadsheet_{year}",

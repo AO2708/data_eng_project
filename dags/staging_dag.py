@@ -415,12 +415,12 @@ with DAG(
             values = []
             for row in df.itertuples(index=False) : 
                 full_date = row.date
-                t_avg = row.tavg
-                precipitation = row.prcp
-                pressure = row.pres
-                snow = row.snow
-                wind_speed = row.wspd
-                sun = row.tsun
+                t_avg = row.tavg if pd.notna(row.tavg) else 'NULL'
+                precipitation = row.prcp if pd.notna(row.prcp) else 'NULL'
+                pressure = row.pres if pd.notna(row.pres) else 'NULL'
+                snow = row.snow if pd.notna(row.snow) else 'NULL'
+                wind_speed = row.wspd if pd.notna(row.wspd) else 'NULL'
+                sun = row.tsun if pd.notna(row.tsun) else 'NULL'
                 
                 values.append(
                     "("
