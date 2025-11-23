@@ -7,6 +7,7 @@ from airflow.utils.trigger_rule import TriggerRule
 from airflow.providers.mongo.hooks.mongo import MongoHook
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
+import re
 
 START_DATE = pendulum.datetime(2025, 10, 20, tz="UTC")
 
@@ -47,11 +48,11 @@ with DAG(
             print("No documents found in collection.")
         else:
             # 4. Extract field names (keys)
-            fieldnames = list(documents[0].keys())
-            
-            # Optional: remove MongoDB’s internal "_id" if not needed
-            if "_id" in fieldnames:
-                fieldnames.remove("_id")
+            fieldnames = set()
+            for doc in documents:
+                fieldnames.update(doc.keys())
+            fieldnames.discard("_id")
+            fieldnames = list(fieldnames)
 
             # 5. Write to CSV
             with open("/opt/airflow/data/boston_data.csv", "w", newline="", encoding="utf-8") as f:
@@ -165,6 +166,38 @@ with DAG(
 
         print(f"✅ Cleaned weather data saved to: {output_file}")
 
+    def fix_name(s):
+        if not isinstance(s, str) or not s:
+            return s
+        if re.search(r'[ÃÂÁ�]', s):
+            try:
+                return s.encode('latin1').decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                return s
+        return s
+
+    def is_valid_name(s):
+        if not isinstance(s, str) or not s:
+            return False
+        if '�' in s:
+            return False
+        corruption_patterns = [
+            r'Ã[^a-zA-Z\s]',      
+            r'Â[·ˆ„‰¸"\']',         
+            r'·',                
+            r'¯',              
+            r'¸',
+            r'Á',                 
+            r'\?[a-z]',          
+            r"Â'",                
+            r'Â"',  
+            r'Â’'             
+        ]
+        for pattern in corruption_patterns:
+            if re.search(pattern, s):
+                return False
+        return True
+
     def _clean_boston():
         # Preparation
         date_filename = "/opt/airflow/data/boston_date.csv"
@@ -180,13 +213,6 @@ with DAG(
 
         # Cleaning of df_boston
         for index, row in df_boston.iterrows():
-            if row["contry_citizenship"] == "United ":
-                df_boston.at[index, "contry_citizenship"] = "USA"
-            if row["country_residence"] == "United ":
-                df_boston.at[index, "country_residence"] = "USA"
-            if pd.isna(row["contry_citizenship"]) and not pd.isna(row["country_residence"]):
-                df_boston.at[index, "contry_citizenship"] = row["country_residence"]
-
             if pd.isna(row["official_time"]):
                 df_boston.at[index, 'pace'] = None
                 continue
@@ -201,25 +227,26 @@ with DAG(
             if m >= 60 or s >= 60:
                 df_boston.at[index, 'pace'] = None
                 continue
-
             pace_seconds = (int(h) * 3600 + int(m) * 60 + int(s)) / 42.195
             df_boston.at[index, 'pace'] = f"{int(pace_seconds // 3600):02d}:{int((pace_seconds % 3600) // 60):02d}:{int(pace_seconds % 60):02d}"
 
-        keep_columns = ["place_overall","official_time","gender_result","edition","display_name","age","gender","contry_citizenship","pace"]
+        keep_columns = ["overall","official_time","gender_result","edition","display_name","age","gender","pace"]
         df_boston = df_boston[keep_columns]
+        df_boston['display_name'] = df_boston['display_name'].apply(fix_name)
+        df_boston = df_boston[df_boston['display_name'].apply(is_valid_name)]
         df_boston = df_boston.dropna()
 
         # table_results.csv
-        df_result = df_boston[["place_overall","official_time","gender_result","edition","display_name","age","pace"]]
-        df_result = df_result.rename(columns={'place_overall': 'ranking','official_time':'time', 'edition':'year','display_name':'name'})
-        df_result.to_csv(result_filename, index=False)
+        df_result = df_boston[["overall","official_time","gender_result","edition","display_name","age","pace"]]
+        df_result = df_result.rename(columns={'overall': 'ranking','official_time':'time', 'edition':'year','display_name':'name'})
+        df_result.to_csv(result_filename, index=False, encoding='utf-8')
 
         # table_runners.csv
-        df_runner = df_boston[["display_name","age","gender","contry_citizenship"]]
-        df_runner = df_runner.rename(columns={'display_name':'name','contry_citizenship':'nationality'})
+        df_runner = df_boston[["display_name","age","gender"]]
+        df_runner = df_runner.rename(columns={'display_name':'name'})
         df_runner.drop_duplicates(inplace=True)
         df_runner.reset_index(drop=True, inplace=True)
-        df_runner.to_csv(runners_filename, index=False)
+        df_runner.to_csv(runners_filename, index=False, encoding='utf-8')
 
         # table_marathons.csv
         df_marathon = df_boston[["edition"]].copy()
@@ -243,7 +270,7 @@ with DAG(
         df_final.drop_duplicates(inplace=True)
         df_final.reset_index(drop=True, inplace=True)
 
-        df_final.to_csv(marathons_filename, index=False)
+        df_final.to_csv(marathons_filename, index=False, encoding='utf-8')
 
     def _sort_weather():
         weather_filename = "/opt/airflow/data/cleaned_weather_data.csv"
@@ -285,7 +312,6 @@ with DAG(
                 "   Name VARCHAR(100),\n"
                 "   Age INT,\n"
                 "   Gender VARCHAR(1),\n"
-                "   Nationality VARCHAR(50),\n"
                 "   CONSTRAINT name_age_unique UNIQUE(Name, Age)\n"
                 ");\n"
             )
@@ -315,12 +341,11 @@ with DAG(
             )
 
     # Insert queries
-
     def _insert_runners_query(output_folder:str):
         with open("/opt/airflow/data/insert_runners_staging.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/table_runners.csv")
             f.write(
-                "INSERT INTO Runners (name, age, gender, nationality)\n"
+                "INSERT INTO Runners (name, age, gender)\n"
                 "VALUES\n"
             )
             values = []
@@ -328,8 +353,7 @@ with DAG(
                 name = row.name.replace("'", "")
                 age = row.age
                 gender = row.gender
-                nationality = row.nationality
-                values.append(f"('{name}', {age}, '{gender}', '{nationality}')")
+                values.append(f"('{name}', {age}, '{gender}')")
             f.write(", \n".join(values))
             f.write("\nON CONFLICT (name, age) DO NOTHING;\n")
 

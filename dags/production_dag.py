@@ -53,8 +53,7 @@ with DAG(
                 "   RunnerKey SERIAL PRIMARY KEY,\n"
                 "   Name VARCHAR(100),\n"
                 "   Age INT,\n"
-                "   Gender VARCHAR(1),\n"
-                "   Nationality VARCHAR(50)\n"
+                "   Gender VARCHAR(1)\n"
                 ");\n"
             )
             f.write(
@@ -182,7 +181,7 @@ with DAG(
         with open("/opt/airflow/data/insert_runners.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/runners.csv")
             f.write(
-                "INSERT INTO DimRunner (RunnerKey, Name, Age, Gender, Nationality)\n"
+                "INSERT INTO DimRunner (RunnerKey, Name, Age, Gender)\n"
                 "VALUES\n"
             )
             values = []
@@ -191,8 +190,7 @@ with DAG(
                 name = row.name
                 age = row.age
                 gender = row.gender
-                nationality = row.nationality
-                values.append(f"({runner_id}, '{name}', '{age}', '{gender}', '{nationality}')")
+                values.append(f"({runner_id}, '{name}', '{age}', '{gender}')")
             f.write(", \n".join(values))
             f.write("\nON CONFLICT (RunnerKey) DO NOTHING;\n")
             f.write("SELECT setval('dimrunner_runnerkey_seq', COALESCE((SELECT MAX(RunnerKey) FROM DimRunner), 0),  true);\n")

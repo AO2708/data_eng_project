@@ -8,7 +8,7 @@ from pymongo.errors import BulkWriteError
 
 START_DATE = pendulum.datetime(2025, 10, 20, tz="UTC")
 
-YEARS = [2019, 2018, 2017, 2016, 2015]
+YEARS = [2019, 2018, 2017, 2016, 2015, 2014]
 
 with DAG(
     dag_id="ingest_marathons",
@@ -29,7 +29,7 @@ with DAG(
 
         df = pd.read_csv(f"/opt/airflow/data/{year}_marathons_data.csv", on_bad_lines='skip')
         df["edition"] = year
-        df["ID"] = df["place_overall"].astype(str) + "_" + df["edition"].astype(str)
+        df["ID"] = df["overall"].astype(str) + "_" + df["edition"].astype(str)
         data_to_insert = df.to_dict('records')
         try:
             collection.insert_many(data_to_insert, ordered=False)
