@@ -53,8 +53,7 @@ with DAG(
                 "   RunnerKey SERIAL PRIMARY KEY,\n"
                 "   Name VARCHAR(100),\n"
                 "   Age INT,\n"
-                "   Gender VARCHAR(1),\n"
-                "   Nationality VARCHAR(50)\n"
+                "   Gender VARCHAR(1)\n"
                 ");\n"
             )
             f.write(
@@ -182,7 +181,7 @@ with DAG(
         with open("/opt/airflow/data/insert_runners.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/runners.csv")
             f.write(
-                "INSERT INTO DimRunner (RunnerKey, Name, Age, Gender, Nationality)\n"
+                "INSERT INTO DimRunner (RunnerKey, Name, Age, Gender)\n"
                 "VALUES\n"
             )
             values = []
@@ -191,8 +190,7 @@ with DAG(
                 name = row.name
                 age = row.age
                 gender = row.gender
-                nationality = row.nationality
-                values.append(f"({runner_id}, '{name}', '{age}', '{gender}', '{nationality}')")
+                values.append(f"({runner_id}, '{name}', '{age}', '{gender}')")
             f.write(", \n".join(values))
             f.write("\nON CONFLICT (RunnerKey) DO NOTHING;\n")
             f.write("SELECT setval('dimrunner_runnerkey_seq', COALESCE((SELECT MAX(RunnerKey) FROM DimRunner), 0),  true);\n")
@@ -207,12 +205,12 @@ with DAG(
             values = []
             for row in df.itertuples(index=False) :
                 weather_id = row.weather_id
-                average_temperature = row.t_avg
-                precipitation = row.precipitation
-                snow = row.snow
-                wind_speed = row.wind_speed
-                pressure = row.pressure
-                sun = row.sun
+                average_temperature = row.t_avg if pd.notna(row.t_avg) else 'NULL'
+                precipitation = row.precipitation if pd.notna(row.precipitation) else 'NULL'
+                snow = row.snow if pd.notna(row.snow) else 'NULL'
+                wind_speed = row.wind_speed if pd.notna(row.wind_speed) else 'NULL'
+                pressure = row.pressure if pd.notna(row.pressure) else 'NULL'
+                sun = row.sun if pd.notna(row.sun) else 'NULL'
                 values.append(f"({weather_id}, {average_temperature}, {precipitation}, {snow}, {wind_speed}, {pressure}, {sun})")
             f.write(", \n".join(values))
             f.write("\nON CONFLICT (WeatherKey) DO NOTHING;\n")

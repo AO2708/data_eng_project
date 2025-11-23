@@ -3,10 +3,6 @@ dags/__pycache__/**/*
 data/**/*
 logs/**/*
 .ipynb_checkpoints/**/*
-!data/2015_marathons_data.csv
-!data/2016_marathons_data.csv
-!data/2017_marathons_data.csv
-!data/2018_marathons_data.csv
-!data/2019_marathons_data.csv
+!data/*_marathons_data.csv
 !data/*_weather.json
 !data/major_marathons_date_data.csv
