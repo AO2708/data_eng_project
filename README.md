@@ -8,6 +8,8 @@ Project [DATA Engineering](https://www.riccardotommasini.com/courses/dataeng-ins
 
 1. [Collaborators](#collaborators)
 2. [Abstract](#abstract)
+   - [Context](#context)
+   - [Our Project](#our-project)
 3. [How to Run It](#how-to-run-it)
 4. [Notebook Explanation](#notebook-explanation)
 5. [Pipeline Design](#pipeline-design)
