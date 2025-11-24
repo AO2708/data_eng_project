@@ -10,7 +10,7 @@ Project [DATA Engineering](https://www.riccardotommasini.com/courses/dataeng-ins
 2. [Abstract](#abstract)
 3. [How to Run It](#how-to-run-it)
 4. [Notebook Explanation](#notebook-explanation)
-5. [How are the Pipelines Designed?](#how-are-the-pipelines-designed-)
+5. [Pipeline Design](#pipeline-design)
    - [Input Datasets](#input-datasets)
    - [Ingestion Pipelines](#ingestion-pipelines)
    - [Staging Pipeline](#staging-pipeline)
@@ -25,6 +25,25 @@ Project [DATA Engineering](https://www.riccardotommasini.com/courses/dataeng-ins
 - Venaille Arno
 
 ## Abstract
+### Context 
+We are three INSA Lyon students passionate about running. As regular runners, we have experienced how weather conditions can impact our performance and observed how these effects can vary from one runner to another.  
+These observations motivated us to investigate broader trends in the relationship between running performance and weather conditions, comparing large-scale data with individual experiences.    
+We chose to focus on the marathon discipline (the premier discipline of distance running) and specifically on the oldest and one of the most prestigious marathons : the Boston Marathon.  
+To balance data richness with computational feasibility, we selected the 2000-2019 period, providing two decades of runner and weather data.
+### Our project
+Our project investigates the relationship between Boston Marathon runner performance and weather conditions between 2000 and 2019.  
+Specifically, we address three analytical questions:
+1. (request 1 details)
+2. (request 2 details)
+3. (request 3 details)
+
+To conduct this analysis, we built an integrated analytical database using five automated Airflow pipelines (three for data ingestion, one for data transformation and one for production data). Instructions for executing these pipelines and constructing the final database are detailed in the following section.  
+Our final database combines data from three sources : 
+- A GitHub repository containing the CSV files of the results of each Boston Marathon edition ;
+- Wikidata to collect the dates of each Boston marathon edition ;
+- Meteostat (a python library) to collect daily weather data for Boston from 2000 to 2019.
+
+The complete pipeline architecture and dataset specifications are detailed in the "Pipeline Design" section, while query results and analytical findings are presented in the "Queries" section.
 
 ## How to run it
 
@@ -46,7 +65,7 @@ Concretely, the notebook allows the user to :
 5. Trigger the **production pipeline** and wait for its completion.
 6. Execute the **three analytical requests** and perform **some data science** on the resulting outputs.
 
-## How are the pipelines designed ?
+## Pipeline Design
 
 (TODO : Put a schema with the technologies used)
 
