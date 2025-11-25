@@ -354,7 +354,7 @@ All operations are centralized within the notebook, providing a streamlined and 
 ### Additional Features
 - [x] Include MongoDB for ingestion.
 - [x] OLTP Database used in the staging zone.
-- [x] All configuration, pipelines launching and data visualisation gather in the notebook.
+- [x] All configurations, pipeline execution triggering and data visualization gathered in the notebook.
 
 ## Environment Information
 | Service | Address | Username:Password
