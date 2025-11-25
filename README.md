@@ -10,7 +10,7 @@ Project [DATA Engineering](https://www.riccardotommasini.com/courses/dataeng-ins
 2. [Abstract](#abstract)
    - [Context](#context)
    - [Our Project](#our-project)
-3. [How to Run It](#how-to-run-it)
+3. [Getting Started](#getting-started)
 4. [Notebook Explanation](#notebook-explanation)
 5. [Pipeline Design](#pipeline-design)
    - [Input Datasets](#input-datasets)
@@ -18,7 +18,11 @@ Project [DATA Engineering](https://www.riccardotommasini.com/courses/dataeng-ins
    - [Staging Pipeline](#staging-pipeline)
    - [Production Pipeline](#production-pipeline)
 6. [Queries](#queries)
-7. [Requirements](#requirements)
+7. [Project Delivery and Compliance](#project-delivery-and-compliance)
+   - [Technical Stack and Justification](#technical-stack-and-justification)
+   - [Core Requirements](#core-requirements)
+   - [Additional Features](#additional-features)
+8. [Environment Information](#environment-information)
 
 ## Collaborators
 
@@ -53,7 +57,7 @@ Our final database combines data from three sources :
 
 The complete pipeline architecture and dataset specifications are detailed in the "Pipeline Design" section, while query results and analytical findings are presented in the "Queries" section.
 
-## How to run it
+## Getting Started
 
 1. Download or clone this repository ;
 2. With your favorite CLI, open the downloaded/cloned folder ;
@@ -151,7 +155,7 @@ At the end of this step, we will have three MongoDB databases :
 
 <img src="images/ingestion_marathons_airflow_dag.jpg" alt="Airflow Dag of the marathons ingestion" title="Airflow Dag of the marathons ingestion" width="100%" />
 
-The aim of the pipeline above is to ingest 20 CSV files containing Boston Marathon race results from 2000 to 2019 and bring it to the landing zone (a MongoDB database).  
+The aim of the pipeline above is to ingest 20 CSV files containing Boston Marathon race results from 2000 to 2019 and bring it to the landing zone (a MongoDB collection).  
 The data pipeline consists of 20 parallel tasks. Each task is responsible for ingesting one CSV file (representing data for one edition of the Boston Marathon) and follows a consistent two-step pattern:
 
 1. A BashOperator (get_spreadsheet\_{year}) : Retrieves the CSV file from the GitHub repository (mentioned in the 'Input Datasets' section).
@@ -165,7 +169,7 @@ At the end of the ingestion, there are `289284` records in the Mongo database.
 
 <img src="images/ingestion_marathons_dates_airflow_dag.jpg" alt="Airflow Dag of the marathons dates ingestion" title="Airflow Dag of the marathons dates ingestion" width="100%" />
 
-The aim of the pipeline above is to ingest the Boston Marathon official dates from 1897 to 2022 (data is not available beyond 2022) and bring it to the landing zone (a MongoDB database).  
+The aim of the pipeline above is to ingest the Boston Marathon official dates from 1897 to 2022 (data is not available beyond 2022) and bring it to the landing zone (a MongoDB collecion).  
 The data pipeline consists of two sequential tasks :
 
 1. A PythonOperator (extract_wikidata_marathon_date) : Uses the python library `SPARQLWrapper` to query Wikidata for the exact date of each Boston Marathon edition and extracts the results into a CSV file.
@@ -179,7 +183,7 @@ At the end of the ingestion, there are `126` records in the Mongo database (one 
 
 <img src="images/ingestion_weather_airflow_dag.jpg" alt="Airflow Dag of the weather data ingestion" title="Airflow Dag of the weather data ingestion" width="100%" />
 
-The aim of the pipeline above is to ingest the daily weather data of Boston from January 1st, 2015 to December 31st, 2019 and bring it to the landing zone (a MongoDB database).  
+The aim of the pipeline above is to ingest the daily weather data of Boston from January 1st, 2015 to December 31st, 2019 and bring it to the landing zone (a MongoDB collection).  
 The data pipeline consists of two sequential tasks :
 
 1. A PythonOperator (run_weather_script) : Uses the python library `meteostat` to query and retrieve historical weather data for Boston.
@@ -210,9 +214,9 @@ More specifically, here is a table describing each operator in the pipeline abov
 | create_db | SQLExecuteQueryOperator | Create the staging database. |
 | create_tables_query | PythonOperator | Write the queries in a SQL file for creating the database tables. |
 | create_tables | SQLExecuteQueryOperator | Execute the previous queries in the staging database. |
-| get_weather | PythonOperator | Migrate weather data from the landing zone (MongoDB database) into a CSV file. |
-| get_marathons_date | PythonOperator | Migrate Boston Marathon dates data from the landing zone (MongoDB database) into a CSV file. |
-| get_boston | PythonOperator | Migrate Boston Marathon race results data from the landing zone (MongoDB database) into a CSV file. |
+| get_weather | PythonOperator | Migrate weather data from the landing zone (MongoDB collection) into a CSV file. |
+| get_marathons_date | PythonOperator | Migrate Boston Marathon dates data from the landing zone (MongoDB collection) into a CSV file. |
+| get_boston | PythonOperator | Migrate Boston Marathon race results data from the landing zone (MongoDB collection) into a CSV file. |
 | clean_weather | PythonOperator | Clean weather data (more details below) and write the cleaned data into a CSV file. |
 | clean_boston | PythonOperator | Clean Boston Marathon data (race results and official dates, more details below) and write the cleaned data into three different CSV files. |
 | sort_weather | PythonOperator | Save in a CSV file only daily weather data corresponding to Boston Marathon race dates. |
@@ -306,4 +310,59 @@ Indeed, constraints are created for each table of the database :
 
 ## Queries
 
-## Requirements Meeting
+## Project Delivery and Compliance
+### Technical Stack and Justification
+
+**End-to-End Workflow : Jupyter Notebook and Airflow**  
+
+&nbsp;&nbsp;&nbsp;&nbsp;We chose to use Jupyter Notebook as the final frontend to configure the project, trigger pipeline execution, and create data visualizations. This choice is motivated by the need for an interactive and unified interface that combines code execution and visual output in a single environment. Furthermore, Jupyter Notebook significantly enhances user experience by eliminating the need to navigate to the Airflow API Server, for instance, for tasks such as creating database connections or triggering pipeline execution.  
+All operations are centralized within the notebook, providing a streamlined and user-friendly interface.  
+
+&nbsp;&nbsp;&nbsp;&nbsp;Airflow was mandatory for the project. However, beyond meeting this requirement, this tool enables us to orchestrate the complete dataflow.
+
+**Ingestion Part : MongoDB**  
+
+&nbsp;&nbsp;&nbsp;&nbsp;MongoDB was selected for the ingestion zone based on several key technical considerations :
+- CP Model (CAP Theorem) : Prioritizes consistency and partition tolerance ; occasional unavailability is acceptable for ingestion operations.
+- Intermediate Storage : Acts as a buffer between raw data sources (CSV/JSON files) and the staging zone, decoupling ingestion from transformation.
+- Schema Flexibility : Essential for handling Boston Marathon CSV files with inconsistent structures across different years : all variants can be stored in a single collection without schema constraints.
+- Indexing Support : Prevents already present records from being inserted into the ingestion database if pipelines are run again, ensuring data integrity.
+
+**Staging Part : PostgreSQL**  
+
+&nbsp;&nbsp;&nbsp;&nbsp;We selected PostgreSQL for the staging zone to persist data in an OLTP (Online Transaction Processing) database before migrating it to the final database (supporting OLAP queries) during the production pipeline. PostgreSQL was selected for the staging zone based on several key technical considerations :
+- OLTP Architecture : The staging zone acts as a transactional layer where new data is loaded from the landing zone and undergoes cleaning, normalization, and validation operations. This OLTP approach allows us to defer the implementation of complex analytical structures, such as star schemas, until the production zone. Furthermore, OLTP systems are optimized for transactional workloads involving frequent read/write operations.
+- CA Model (CAP Theorem) : PostgreSQL prioritizes Consistency and Availability (CA model), both critical for staging operations. Consistency ensures cleaned data maintains integrity across operations, while availability guarantees uninterrupted processing.
+- Schema Enforcement via SQL : PostgreSQL's defined schemas validate cleaned and normalized data structures, acting as a quality gate.
+- Indexing Support : Prevents already present records from being inserted into the staging database if pipelines are run again, ensuring data integrity.
+
+**Production Part : PostgreSQL**  
+
+&nbsp;&nbsp;&nbsp;&nbsp;We selected PostgreSQL for the production zone to persist data in a database supporting OLAP (Online Analytical Processing) queries. PostgreSQL was selected as the final analytical database based on several key technical considerations :
+- CA Model (CAP Theorem) : PostgreSQL prioritizes Consistency and Availability (CA model), both critical for production operations. Consistency ensures cleaned data maintains integrity across operations, while availability guarantees uninterrupted processing.
+- OLAP Query Support via Star Schema : Although PostgreSQL is traditionally optimized for OLTP workloads, implementing a star schema in the production zone significantly enhances its OLAP capabilities. The star schema reduces the number of joins required for analytical queries by denormalizing data into fact and dimension tables. This enables efficient aggregations and complex analytical queries typical of OLAP systems.
+- Indexing Support : Avoid inserting duplicates in the production database.
+
+### Core Requirements
+- [x] Code well documented.
+- [x] Docker-compose file to run the environment.
+- [x] Detailed description of the various steps.
+- [x] Report.
+- [x] Pipelines can be run offline.
+- [x] Minimum number of pipelines is 3.
+
+### Additional Features
+- [x] Include MongoDB for ingestion.
+- [x] OLTP Database used in the staging zone.
+- [x] All configuration, pipelines launching and data visualisation gather in the notebook.
+
+## Environment Information
+| Service | Address | Username:Password
+| ------- | ------- | ------- |
+| Mongo | http://localhost:27017 | admin:admin |
+| Mongo Express | http://localhost:8081 | admin:admin |
+| Jupyter Notebook | http://localhost:8888 | / |
+| PostgreSQL | http://localhost:5432 | airflow:airflow |
+| PGAdmin | http://localhost:5050 | admin@admin.com:root |
+| Airflow API Server | http://localhost:8080 | airflow:airflow |
+
