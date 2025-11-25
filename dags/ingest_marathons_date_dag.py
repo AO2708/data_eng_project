@@ -44,8 +44,12 @@ with DAG(
 ) as dag :
 
     def extract_wikidata_marathon_date(sparql_endpoint, query_str, **context):
+        """
+        Extract Boston marathons dates from Wikidata and store the collected data into a CSV file.
+        """
         filename = "/opt/airflow/data/major_marathons_date_data.csv"
         try :
+            # Query Wikidata
             sparql.setQuery(query)
             sparql.setReturnFormat(JSON)
             results = sparql.query().convert()
@@ -65,7 +69,7 @@ with DAG(
                     "date": iso_date,
                     "location": r.get("locationLabel", {}).get("value"),
                 })
-
+            # Save results into a CSV file
             df = pd.DataFrame(data)
             df.to_csv(filename, index=False)
         except Exception as e:
@@ -74,12 +78,17 @@ with DAG(
 
 
     def insert_marathons_date_data(**context):
+        """
+        Insert Boston marathons dates into the "major_marathons_date" MongoDB collection.
+        """
+        # MongoDB configuration
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
         db = client['project']
         collection = db['major_marathons_date']
         collection.create_index("edition", unique=True)
 
+        # Insertion
         df = pd.read_csv("/opt/airflow/data/major_marathons_date_data.csv")
         data_to_insert = df.to_dict('records')
         try:

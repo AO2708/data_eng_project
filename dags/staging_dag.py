@@ -22,6 +22,11 @@ with DAG(
 ) as dag :
     
     def _check_db_handler(cursor):
+        """
+        Check whether the cursor returned at least one row meaning the staging database already exists.
+        :param cursor: A database cursor object.
+        :return: True if a row exists, otherwise False.
+        """
         row = cursor.fetchone()
         if row is not None:
             return True
@@ -29,6 +34,11 @@ with DAG(
             return False
         
     def _branch_on_db_existence(ti):
+        """
+        Branch depending on whether the staging database exists.
+        :param ti: Airflow TaskInstance used to pull XCom values.
+        :return: The id of the next task to execute.
+        """
         db_exists = ti.xcom_pull(task_ids="check_db")
         if db_exists:
             return "skip_create"
@@ -36,6 +46,9 @@ with DAG(
             return "create_db"
     
     def _get_boston():
+        """
+        Migrate Boston Marathon race results data from the landing zone ('boston_marathons' MongoDB collection) into a CSV file.
+        """
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
         db = client['project']
@@ -43,23 +56,23 @@ with DAG(
 
         documents = list(collection.find())
 
-        # 3. If no data, exit early
+        # If no data, exit early
         if not documents:
             print("No documents found in collection.")
         else:
-            # 4. Extract field names (keys)
+            # Extract field names (keys)
             fieldnames = set()
             for doc in documents:
                 fieldnames.update(doc.keys())
             fieldnames.discard("_id")
             fieldnames = list(fieldnames)
 
-            # 5. Write to CSV
+            # Write to CSV
             with open("/opt/airflow/data/boston_data.csv", "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 for doc in documents:
-                    # Remove _id or convert ObjectId to string if needed
+                    # Remove _id
                     doc.pop("_id", None)
                     writer.writerow(doc)
 
@@ -68,6 +81,9 @@ with DAG(
         client.close()
 
     def _get_marathons_date():
+        """
+        Migrate Boston Marathon dates data from the landing zone ('major_marathons_date' MongoDB collection) into a CSV file.
+        """
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
         db = client['project']
@@ -75,23 +91,23 @@ with DAG(
 
         documents = list(collection.find())
 
-        # 3. If no data, exit early
+        # If no data, exit early
         if not documents:
             print("No documents found in collection.")
         else:
-            # 4. Extract field names (keys)
+            # Extract field names (keys)
             fieldnames = list(documents[0].keys())
             
-            # Optional: remove MongoDB’s internal "_id" if not needed
+            # Remove MongoDB’s internal "_id"
             if "_id" in fieldnames:
                 fieldnames.remove("_id")
 
-            # 5. Write to CSV
+            # Write to CSV
             with open("/opt/airflow/data/boston_date.csv", "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 for doc in documents:
-                    # Remove _id or convert ObjectId to string if needed
+                    # Remove _id
                     doc.pop("_id", None)
                     writer.writerow(doc)
 
@@ -100,6 +116,9 @@ with DAG(
         client.close()
 
     def _get_weather():
+        """
+        Migrate weather data from the landing zone ('weather_data' MongoDB collection) into a CSV file.
+        """
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
         db = client['project']
@@ -107,26 +126,26 @@ with DAG(
 
         documents = list(collection.find())
 
-        # 3. If no data, exit early
+        # If no data, exit early
         if not documents:
             print("No documents found in collection.")
         else:
-            # 4. Extract field names (keys)
+            # Extract field names (keys)
             fieldnames = list(documents[0].keys())
             
-            # Optional: remove MongoDB’s internal "_id" if not needed
+            # Remove MongoDB’s internal "_id" and "ID"
             if "_id" in fieldnames:
                 fieldnames.remove("_id")
 
             if "ID" in fieldnames:
                 fieldnames.remove("ID")
 
-            # 5. Write to CSV
+            # Write to CSV
             with open("/opt/airflow/data/weather_data.csv", "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 for doc in documents:
-                    # Remove _id or convert ObjectId to string if needed
+                    # Remove _id and ID
                     doc.pop("_id", None)
                     doc.pop("ID",None)
                     writer.writerow(doc)
@@ -136,6 +155,9 @@ with DAG(
         client.close()
     
     def _clean_weather():
+        """
+        Reorganise weather data by dates and write the cleaned data into a CSV file.
+        """
         input_file = "/opt/airflow/data/weather_data.csv"
         output_file = "/opt/airflow/data/cleaned_weather_data.csv"
 
@@ -167,6 +189,11 @@ with DAG(
         print(f"✅ Cleaned weather data saved to: {output_file}")
 
     def fix_name(s):
+        """
+        Attempt to fix mojibake-encoded names such as 'JosÃ©' -> 'José'.
+        :param s: Input string (possibly misencoded).
+        :return: Corrected string, or the original if no fix was possible.
+        """
         if not isinstance(s, str) or not s:
             return s
         if re.search(r'[ÃÂÁ�]', s):
@@ -177,6 +204,11 @@ with DAG(
         return s
 
     def is_valid_name(s):
+        """
+        Determine whether a name string contains signs of encoding corruption.
+        :param s: Input string to validate.
+        :return: True if the name appears valid, False if corruption is detected.
+        """
         if not isinstance(s, str) or not s:
             return False
         if '�' in s:
@@ -199,6 +231,20 @@ with DAG(
         return True
 
     def _clean_boston():
+        """
+        Clean and transform Boston Marathon dataset files to produce normalized CSV tables.
+
+        This function performs the following steps:
+        - Load raw Boston marathon data and Boston marathons dates.
+        - Pace Calculation.
+        - Column Selection.
+        - Name Encoding Fix and Name Validation.
+        - Null Removal.
+        - Data Splitting into three CSV files:
+            * table_result.csv   — marathon results (ranking, time, year, runner info, pace)
+            * table_runners.csv  — unique runners with demographic details
+            * table_marathons.csv — marathon editions with associated dates and location
+        """
         # Preparation
         date_filename = "/opt/airflow/data/boston_date.csv"
         boston_filename = "/opt/airflow/data/boston_data.csv"
@@ -273,6 +319,9 @@ with DAG(
         df_final.to_csv(marathons_filename, index=False, encoding='utf-8')
 
     def _sort_weather():
+        """
+        Save in a CSV file only daily weather data corresponding to Boston Marathon race dates.
+        """
         weather_filename = "/opt/airflow/data/cleaned_weather_data.csv"
         date_filename = "/opt/airflow/data/table_marathons.csv"
 
@@ -294,6 +343,9 @@ with DAG(
 
     # Create table query
     def _create_tables_query():
+        """
+        Create a SQL file containing queries in order to create the database tables if they do not exist.
+        """
         with open("/opt/airflow/data/create_tables_staging.sql", "w") as f:
             f.write(
                 "CREATE TABLE IF NOT EXISTS Marathons(\n"
@@ -342,6 +394,9 @@ with DAG(
 
     # Insert queries
     def _insert_runners_query(output_folder:str):
+        """
+        Write the query in a SQL file for inserting Runners data into the 'Runners' table.
+        """
         with open("/opt/airflow/data/insert_runners_staging.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/table_runners.csv")
             f.write(
@@ -358,6 +413,9 @@ with DAG(
             f.write("\nON CONFLICT (name, age) DO NOTHING;\n")
 
     def _insert_marathons_query(output_folder:str):
+        """
+        Write the query in a SQL file for inserting Marathons data into the 'Marathons' table.
+        """
         with open("/opt/airflow/data/insert_marathons_staging.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/table_marathons.csv")
             f.write(
@@ -376,6 +434,11 @@ with DAG(
             f.write("\nON CONFLICT (city, year) DO NOTHING;\n")
 
     def _insert_result_query(output_folder:str, ti):
+        """
+        Retrieves marathon IDs and runner IDs from Airflow XComs (`get_marathons_id` and `get_runners_id` tasks) (Optimisation).
+        Write the query in a SQL file for inserting Result data into the 'Result' table.
+        :param ti: Airflow TaskInstance used to pull XCom dictionaries for ID resolution.
+        """
         marathon_dict = ti.xcom_pull(task_ids='get_marathons_id')
         runner_dict = ti.xcom_pull(task_ids='get_runners_id')
         with open("/opt/airflow/data/insert_result_staging.sql", "w") as f:
@@ -406,6 +469,9 @@ with DAG(
             f.write("\nON CONFLICT (marathon_id, runner_id) DO NOTHING;\n")
 
     def _insert_weather_query(output_folder:str):
+        """
+        Write the query in a SQL file for inserting Weather data into the 'Weather' table.
+        """
         with open("/opt/airflow/data/insert_weather_staging.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/table_weather.csv")
             f.write(
@@ -433,11 +499,26 @@ with DAG(
             f.write("\nON CONFLICT (marathon_id) DO NOTHING;\n")
 
     def _store_marathons_id(cursor):
+        """
+        Extract marathon IDs from the staging database cursor and return them as a dictionary.
+        The cursor is expected to return rows where:
+        - column 0 contains the marathon year,
+        - column 1 contains the corresponding marathon_id in the staging database.
+        :param cursor: A database cursor object.
+        """
         rows = cursor.fetchall()
         marathon_dict = {int(row[0]): int(row[1]) for row in rows}
         return marathon_dict
     
-    def _store_runners_id(cursor):    
+    def _store_runners_id(cursor):
+        """
+        Extract runner IDs from the staging database cursor and return them as a dictionary.
+        The cursor is expected to return rows where:
+        - column 0 contains the runner name,
+        - column 1 contains the runner age,
+        - column 2 contains the corresponding runner_id in the staging database.
+        :param cursor: A database cursor object.
+        """    
         rows = cursor.fetchall()
         runner_dict = {f"{row[0]}_{row[1]}": row[2] for row in rows}
         return runner_dict

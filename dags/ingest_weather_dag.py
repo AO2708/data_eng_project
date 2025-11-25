@@ -25,12 +25,16 @@ with DAG(
 ) as dag :
 
     def insert_weather_data(**context):
+        """
+        Insert the collected Weather data into the "weather_data" MongoDB collection.
+        """
+        # MongoDB configuration
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
         db = client['project']
         collection = db['weather_data']
         collection.create_index("ID", unique=True)
-
+        # JSON file read
         all_files = glob.glob("/opt/airflow/data/*_weather.json")
         df_list = []
         for filename in all_files:
@@ -42,7 +46,7 @@ with DAG(
                 df_list.append(df)
         merged_df = pd.concat(df_list, ignore_index=True)
         data_to_insert = merged_df.to_dict(orient='records')
-
+        # Data insertion
         try:
             collection.insert_many(data_to_insert, ordered=False)
             print(f"{len(data_to_insert)} inserted documents into 'weather_data' collection.")
@@ -56,16 +60,15 @@ with DAG(
         client.close()
 
     def fetch_weather_data():
-
+        """
+        Fetch the daily weather data of Boston from January 1st, 2015 to December 31st, 2019 and save it into a JSON file.
+        """
         cities = {
             "Boston": Point(42.361145, -71.057083)
         }
-
         start = datetime(2000, 1, 1)
         end = datetime(2019, 12, 31)
-
-        print(start,end)
-
+        # Fetching data
         for city_name, location in cities.items():
             filename = "/opt/airflow/data/" + city_name.lower() + "_weather.json"
             try :

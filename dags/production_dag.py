@@ -21,6 +21,11 @@ with DAG(
 ) as dag:
 
     def _check_db_handler(cursor):
+        """
+        Check whether the cursor returned at least one row meaning the production database already exists.
+        :param cursor: A database cursor object.
+        :return: True if a row exists, otherwise False.
+        """
         row = cursor.fetchone()
         if row is not None:
             return True
@@ -28,6 +33,11 @@ with DAG(
             return False
         
     def _branch_on_db_existence(ti):
+        """
+        Branch depending on whether the production database exists.
+        :param ti: Airflow TaskInstance used to pull XCom values.
+        :return: The id of the next task to execute.
+        """
         db_exists = ti.xcom_pull(task_ids="check_db")
         if db_exists:
             return "skip_create"
@@ -36,6 +46,9 @@ with DAG(
 
     # Extract queries
     def _create_tables_query(output_folder:str):
+        """
+        Create a SQL file containing queries in order to create the database tables if they do not exist.
+        """
         with open("/opt/airflow/data/create_tables.sql", "w") as f:
             f.write(
                 "CREATE TABLE IF NOT EXISTS DimWeather(\n"
@@ -87,30 +100,45 @@ with DAG(
             
 
     def _extract_runners_query(output_folder:str):
+        """
+        Create a SQL file containing a query to extract all runners from the staging database.
+        """
         with open("/opt/airflow/data/extract_runners.sql", "w") as f:
             f.write(
                 "SELECT * FROM runners;\n"
             )
 
     def _extract_weather_query(output_folder:str):
+        """
+        Create a SQL file containing a query to extract the weather data from the staging database.
+        """
         with open("/opt/airflow/data/extract_weather.sql", "w") as f:
             f.write(
                 "SELECT weather_id, t_avg, precipitation, snow, wind_speed, pressure, sun FROM weather;\n"
             )
 
     def _extract_date_query(output_folder:str):
+        """
+        Create a SQL file containing a query to extract Boston marathons dates from the staging database.
+        """
         with open("/opt/airflow/data/extract_date.sql", "w") as f:
             f.write(
                 "SELECT marathon_id, full_date, year, month, day FROM marathons ;\n"
             )
 
     def _extract_location_query(output_folder:str):
+        """
+        Create a SQL file containing a query to extract the different city of marathons from the staging database.
+        """
         with open("/opt/airflow/data/extract_location.sql", "w") as f:
             f.write(
                 "SELECT DISTINCT city FROM marathons ;\n"
             )
 
     def _extract_race_result_query(output_folder:str):
+        """
+        Create a SQL file containing a query to extract all race results from the staging database.
+        """
         with open("/opt/airflow/data/race_result_extract.sql", "w") as f:
             f.write(
                 "SELECT \n"
@@ -131,6 +159,10 @@ with DAG(
     # Query handlers
 
     def _runners_query_handler(cursor):
+        """
+        Export query results about runners data from a database cursor into a CSV file.        
+        :param cursor: A database cursor object.
+        """
         csv_path = "/opt/airflow/data/runners.csv"
         columns = [desc[0] for desc in cursor.description]
         results = cursor.fetchall()
@@ -140,6 +172,10 @@ with DAG(
             writer.writerows(results)
 
     def _weather_query_handler(cursor):
+        """
+        Export query results about weather data from a database cursor into a CSV file.        
+        :param cursor: A database cursor object.
+        """
         csv_path = "/opt/airflow/data/weather.csv"
         columns = [desc[0] for desc in cursor.description]
         results = cursor.fetchall()
@@ -149,6 +185,10 @@ with DAG(
             writer.writerows(results)
 
     def _date_query_handler(cursor):
+        """
+        Export query results about Boston Marathons dates from a database cursor into a CSV file.        
+        :param cursor: A database cursor object.
+        """
         csv_path = "/opt/airflow/data/date.csv"
         columns = [desc[0] for desc in cursor.description]
         results = cursor.fetchall()
@@ -158,6 +198,10 @@ with DAG(
             writer.writerows(results)
 
     def _location_query_handler(cursor):
+        """
+        Export query results about location data from a database cursor into a CSV file.        
+        :param cursor: A database cursor object.
+        """
         csv_path = "/opt/airflow/data/location.csv"
         columns = [desc[0] for desc in cursor.description]
         results = cursor.fetchall()
@@ -167,6 +211,10 @@ with DAG(
             writer.writerows(results)
 
     def _race_result_query_handler(cursor):
+        """
+        Export query results about race results from a database cursor into a CSV file.        
+        :param cursor: A database cursor object.
+        """
         csv_path = "/opt/airflow/data/race_result.csv"
         columns = [desc[0] for desc in cursor.description]
         results = cursor.fetchall()
@@ -178,6 +226,10 @@ with DAG(
     # Insert queries
 
     def _insert_runners_query(output_folder:str):
+        """
+        Create a SQL file containing a query to insert runners data to the DimRunner of the production pipeline. 
+        The runners data comes from the runners CSV file created previously by _runners_query_handler.
+        """
         with open("/opt/airflow/data/insert_runners.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/runners.csv")
             f.write(
@@ -196,6 +248,11 @@ with DAG(
             f.write("SELECT setval('dimrunner_runnerkey_seq', COALESCE((SELECT MAX(RunnerKey) FROM DimRunner), 0),  true);\n")
 
     def _insert_weather_query(output_folder:str):
+        """
+        Create a SQL file containing a query to insert weather data to the DimWeather of the production pipeline. 
+        The weather data comes from the weather CSV file created previously by _weather_query_handler.
+        Some weather parameters can be NULL (a few).
+        """
         with open("/opt/airflow/data/insert_weather.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/weather.csv")
             f.write(
@@ -217,6 +274,10 @@ with DAG(
             f.write("SELECT setval('dimweather_weatherkey_seq', COALESCE((SELECT MAX(WeatherKey) FROM DimWeather), 0),  true);\n")
 
     def _insert_date_query(output_folder:str):
+        """
+        Create a SQL file containing a query to insert Dates to the DimDate of the production pipeline. 
+        The dates comes from the dates CSV file created previously by _date_query_handler.
+        """
         with open("/opt/airflow/data/insert_date.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/date.csv")
             f.write(
@@ -236,6 +297,10 @@ with DAG(
             f.write("SELECT setval('dimdate_datekey_seq', COALESCE((SELECT MAX(DateKey) FROM DimDate), 0),  true);\n")
 
     def _insert_location_query(output_folder:str):
+        """
+        Create a SQL file containing a query to insert location data to the DimLocation of the production pipeline. 
+        The location data comes from the location CSV file created previously by _location_query_handler.
+        """
         mapping_city_key = {}
         with open("/opt/airflow/data/insert_location.sql", "w") as f:
             df = pd.read_csv("/opt/airflow/data/location.csv")
@@ -252,13 +317,19 @@ with DAG(
             f.write(", \n".join(values))
             f.write("\nON CONFLICT (LocationKey) DO NOTHING;\n")
             f.write("SELECT setval('dimlocation_locationkey_seq', COALESCE((SELECT MAX(LocationKey) FROM DimLocation), 0),  true);\n")
+        # As we create the keys for the location entries, we need to store them in order to optimise the insertions for the fact table
+        # which reference these keys.
         mapping_df = pd.DataFrame(mapping_city_key.items(), columns=["City", "LocationKey"])
         mapping_df.to_csv(f"/opt/airflow/data/marathon_location_mapping.csv", index=False)
 
     def _insert_race_result_query(output_folder:str):
+        """
+        Create a SQL file containing a query to insert race results data to the FactRaceResult of the production pipeline. 
+        The race results data comes from the race results CSV file created previously by _race_result_query_handler.
+        """
         with open("/opt/airflow/data/insert_race_result.sql", "w") as f:
             df_race_result = pd.read_csv("/opt/airflow/data/race_result.csv")
-
+            # Get location keys stored previously.
             mapping_df = pd.read_csv(f"/opt/airflow/data/marathon_location_mapping.csv")
             mapping_dict = pd.Series(mapping_df.LocationKey.values,index=mapping_df.City).to_dict()
 

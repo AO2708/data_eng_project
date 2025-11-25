@@ -19,6 +19,11 @@ with DAG(
 ) as dag :
 
     def insert_marathons_data(year):
+        """
+        Insert Boston marathons race results containing in a CSV file for a given year into the "boston_marathons" MongoDB collection.
+        :int year: Description
+        """
+        # MongoDB configuration
         hook = MongoHook(conn_id='mongo_default')
         client = hook.get_conn()
         db = client['project']
@@ -27,6 +32,7 @@ with DAG(
 
         df = pd.read_csv(f"/opt/airflow/data/{year}_marathons_data.csv", on_bad_lines='skip')
         df["edition"] = year
+        # ID Creation for each row
         df["ID"] = df["overall"].astype(str) + "_" + df["edition"].astype(str)
         data_to_insert = df.to_dict('records')
         try:
