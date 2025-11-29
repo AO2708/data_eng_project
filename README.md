@@ -311,6 +311,7 @@ Indeed, constraints are created for each table of the database :
 **The DAG**
 
 <img src="images/production_airflow_dag.jpg" alt="¨Production Airflow DAG" title="Production Airflow DAG" width="100%" />
+<br>
 
 The pipeline above has multiple aims :
 
