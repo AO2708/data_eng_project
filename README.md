@@ -308,7 +308,76 @@ Indeed, constraints are created for each table of the database :
 
 ### Production Pipeline
 
-## Queries
+**The DAG**
+
+<img src="images/production_airflow_dag.jpg" alt="¨Production Airflow DAG" title="Production Airflow DAG" width="100%" />
+
+The pipeline above has multiple aims :
+
+- Automatically manage the lifecycle of the production database by checking for its existence, creating the database if missing, and initializing the required table schemas.
+- Extracting raw data, processing it to generate SQL scripts, and loading it into the target tables.
+- Transform the raw relational data into an OLAP Star Schema optimized for analytics. 
+- The data is restructured into a central Fact table (`FactRaceResult`) connected to four Dimensions (`DimWeather`, `DimRunner`, `DimLocation`, `DimDate`).
+
+More specifically, here is a table describing each operator in the pipeline above :
+| Name | Type | Role |
+| --------------- | -------------------- | ---------- |
+| check_db | SQLExecuteQueryOperator | Checks whether the cursor returned at least one row, meaning the production database already exists. |
+| branch | BranchPythonOperator | Branches depending on whether the production database exists. |
+| create_db | SQLExecuteQueryOperator | Creates the production database if it does not exist. |
+| skip_create | EmptyOperator | Skips the database creation step if the database already exists. |
+| create_tables_query | PythonOperator | Creates a SQL file containing queries to create the database tables if they do not exist. |
+| create_tables | SQLExecuteQueryOperator | Executes the generated SQL file to create tables in the production database. |
+| extract_runners_query | PythonOperator | Creates a SQL file containing a query to extract all runners from the staging database. |
+| extract_weather_query | PythonOperator | Creates a SQL file containing a query to extract the weather data from the staging database. |
+| extract_date_query | PythonOperator | Creates a SQL file containing a query to extract Boston Marathons dates from the staging database. |
+| extract_location_query | PythonOperator | Creates a SQL file containing a query to extract the different city of marathons from the staging database. |
+| extract_race_result_query | PythonOperator | Creates a SQL file containing a query to extract all race results from the staging database. |
+| extract_runners | SQLExecuteQueryOperator | Exports query results about runners data from a database cursor into a CSV file. |
+| extract_weather | SQLExecuteQueryOperator | Exports query results about weather data from a database cursor into a CSV file. |
+| extract_date | SQLExecuteQueryOperator | Exports query results about Boston Marathons dates from a database cursor into a CSV file. |
+| extract_location | SQLExecuteQueryOperator | Exports query results about location data from a database cursor into a CSV file. |
+| extract_race_result | SQLExecuteQueryOperator | Exports query results about race results from a database cursor into a CSV file. |
+| insert_runners_query | PythonOperator | Creates a SQL file containing a query to insert runners data to the DimRunner of the production pipeline. |
+| insert_weather_query | PythonOperator | Creates a SQL file containing a query to insert weather data to the DimWeather of the production pipeline. |
+| insert_date_query | PythonOperator | Creates a SQL file containing a query to insert dates to the DimDate of the production pipeline. |
+| insert_location_query | PythonOperator | Creates a SQL file containing a query to insert location data to the DimLocation of the production pipeline. |
+| insert_race_result_query | PythonOperator | Creates a SQL file containing a query to insert race results data to the FactRaceResult of the production pipeline. |
+| insert_runners | SQLExecuteQueryOperator | Executes the generated SQL to insert runners data into the production database. |
+| insert_weather | SQLExecuteQueryOperator | Executes the generated SQL to insert weather data into the production database. |
+| insert_date | SQLExecuteQueryOperator | Executes the generated SQL to insert date data into the production database. |
+| insert_location | SQLExecuteQueryOperator | Executes the generated SQL to insert location data into the production database. |
+| insert_race_result | SQLExecuteQueryOperator | Executes the generated SQL to insert race results data into the production database. |
+| join_dimensions | EmptyOperator | Synchronizes the pipeline to ensure dimension tables are processed. |
+
+<br>
+
+**OLAP Database**
+
+At the end of the pipeline, we have an OLAP database into PostgreSQL with the following schema :  
+
+<br>
+<img src="images/production_db.png" alt="Production OLAP database schema" title="Production OLAP database schema" width="100%" />
+<br>
+
+We will use this production database to execute our queries, see details in the next section.
+
+## Queries (EN COURS, A COMPLETER AVEC RESULTATS)
+
+### 1. Atmospheric Impact on Gender Performance
+**Goal:** Analyze how specific weather metrics (Atmospheric Pressure, Temperature, Precipitation) correlate with the average finish time for Male and Female runners.
+* **Logic:** Calculate the average time of the **Top 100 runners** for each marathon, grouped by gender, and correlated with the atmospheric pressure and temperature recorded for that specific event.
+* **Insight:** Determine if specific genders are more resilient to high/low pressure or extreme temperatures.
+
+### 2. Historical Difficulty Ranking (Year-over-Year)
+**Goal:** Create a "Difficulty Classification" of marathon editions based on the environmental conditions.
+* **Logic:** Aggregate the average time of the **Top 1000 finishers** per year. Rank years from "Fastest" (Easiest) to "Slowest" (Hardest) and overlay weather conditions.
+* **Insight:** Visualize the trend of performance over the years and identify outlier years caused by extreme weather events.
+
+### 3. Cumulative Weather "Harshness" Score
+**Goal:** Measure the impact of combined weather factors on different age groups.
+* **Logic:** Compute a custom **Composite Weather Score** (e.g., `(Temp - 15)² + WindSpeed*0.5 + Precipitation*2`) for each race. Correlate this score with the average performance of the **Top 50 runners**, broken down by **Age Group** and **Gender**.
+* **Insight:** Understand which age groups are most significantly affected by harsh weather conditions (composite stress).
 
 ## Project Delivery and Compliance
 ### Technical Stack and Justification
