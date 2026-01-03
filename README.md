@@ -363,7 +363,7 @@ At the end of the pipeline, we have an OLAP database into PostgreSQL with the fo
 
 We will use this production database to execute our queries, see details in the next section.
 
-## Queries (EN COURS, A COMPLETER AVEC RESULTATS)
+## Queries
 
 ### 1. Temperature Impact on Gender Performance
 **Goal:** Analyze how temperature correlate with the average finish time for Male and Female runners.
