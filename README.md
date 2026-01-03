@@ -79,7 +79,7 @@ Concretely, the notebook allows the user to :
 
 ## Pipeline Design
 
-(TODO : Put a schema with the technologies used)
+![Pipeline](./images/pipeline_physical.png)
 
 ### Input Datasets
 
