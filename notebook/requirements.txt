@@ -1,2 +1,6 @@
 requests
 psycopg2-binary
+pandas
+seaborn
+matplotlib.pyplot
+numpy

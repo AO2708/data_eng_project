@@ -44,9 +44,9 @@ To balance data richness with computational feasibility, we selected the 2000-20
 Our project investigates the relationship between Boston Marathon runner performance and weather conditions between 2000 and 2019.  
 Specifically, we address three analytical questions :
 
-1. (request 1 details)
-2. (request 2 details)
-3. (request 3 details)
+1. How temperature correlate with the average finish time for Male and Female runners ? 
+2. What is the historical difficulty of Boston marathons ?
+3. Which age groups are most significantly affected by harsh weather conditions ?
 
 To conduct this analysis, we built an integrated analytical database using five automated Airflow pipelines (three for data ingestion, one for data transformation and one for production data). Instructions for executing these pipelines and constructing the final database are detailed in the following section.  
 Our final database combines data from three sources :
@@ -365,20 +365,121 @@ We will use this production database to execute our queries, see details in the 
 
 ## Queries (EN COURS, A COMPLETER AVEC RESULTATS)
 
-### 1. Atmospheric Impact on Gender Performance
-**Goal:** Analyze how specific weather metrics (Atmospheric Pressure, Temperature, Precipitation) correlate with the average finish time for Male and Female runners.
-* **Logic:** Calculate the average time of the **Top 100 runners** for each marathon, grouped by gender, and correlated with the atmospheric pressure and temperature recorded for that specific event.
-* **Insight:** Determine if specific genders are more resilient to high/low pressure or extreme temperatures.
+### 1. Temperature Impact on Gender Performance
+**Goal:** Analyze how temperature correlate with the average finish time for Male and Female runners.
+* **Logic:** Calculate the average time of the **Top 1000 runners** for each marathon, grouped by gender, and correlated with the temperature recorded for that specific event.
+* **Insight:** Determine if specific genders are more resilient to high/low temperature.
+
+<br>
+<img src="images/request_analysis_1.png" alt="Impact of temperature on Race Performance by Gender" title="Impact of temperature on Race Performance by Gender" width="100%" />
+<br>
+<br>
+
+**Thermal Penalty**
+
+The graph demonstrates a direct correlation between the temperature and the average finish time. Heat acts as a brake, even for elite and sub-elite runners (Top 1000)
+
+- By observing the slope of the regression lines, we see an increase in average finish time of approximately 5 to 7 minutes as the temperature rises from 5°C to 22°C.
+
+- This equates to a performance loss of roughly 20 to 25 seconds per additional degree Celsius.
+
+**Men vs. Women Comparison**
+
+- There is a stable structural gap of about 25 to 30 minutes between the male top 1000 (average ~2h50) and the female top 1000 (average ~3h15–3h20).
+
+- The two regression lines (red and blue) are nearly parallel. This contradicts the common belief that one gender might cope with heat significantly better than the other. In this elite sample, the degradation in performance due to temperature is proportionally similar for both men and women.
 
 ### 2. Historical Difficulty Ranking (Year-over-Year)
 **Goal:** Create a "Difficulty Classification" of marathon editions based on the environmental conditions.
 * **Logic:** Aggregate the average time of the **Top 1000 finishers** per year. Rank years from "Fastest" (Easiest) to "Slowest" (Hardest) and overlay weather conditions.
 * **Insight:** Visualize the trend of performance over the years and identify outlier years caused by extreme weather events.
 
+
+<br>
+<img src="images/request_analysis_2.png" alt="Marathon Difficulty Classification (Based on Top 1000 Avg Time)" title="Marathon Difficulty Classification (Based on Top 1000 Avg Time)" width="100%" />
+<br>
+
+| Year | Temp (°C) | Wind (km/h) | Rain (mm) | Pressure (hPa) | Difficulty    |
+| :--- | :-------- | :---------- | :-------- | :------------- | :------------ |
+| 2000 | 6.7       | 22.7        | 0.0       | 1023.7         | Normal        |
+| 2001 | 6.1       | 15.5        | 0.0       | 1007.1         | Slow (Hard)   |
+| 2002 | 11.1      | 13.0        | 2.3       | 1015.3         | Normal        |
+| 2003 | 8.3       | 15.1        | 2.0       | 1017.0         | Slow (Hard)   |
+| 2004 | 18.3      | 24.1        | 0.0       | 1014.8         | Slow (Hard)   |
+| 2005 | 15.0      | 16.2        | 0.0       | 1017.2         | Slow (Hard)   |
+| 2006 | 8.6       | 16.9        | 0.3       | 1008.0         | Normal        |
+| 2007 | 7.4       | 37.8        | 23.6      | 986.8          | Slow (Hard)   |
+| 2008 | 8.8       | 11.2        | 0.0       | 1027.8         | Normal        |
+| 2009 | 6.5       | 22.3        | 2.3       | 1024.5         | Fast (Easy)   |
+| 2010 | 10.1      | 19.8        | 0.0       | 1011.1         | Fast (Easy)   |
+| 2011 | 11.5      | 23.4        | 0.0       | 1012.4         | Fast (Easy)   |
+| 2012 | 21.6      | 15.5        | 0.0       | 1014.2         | Slow (Hard)   |
+| 2013 | 7.1       | 17.3        | 0.0       | 1032.4         | Slow (Hard)   |
+| 2014 | 9.3       | 14.8        | 0.0       | 1019.2         | Fast (Easy)   |
+| 2015 | 6.2       | 22.3        | 15.5      | 1018.0         | Fast (Easy)   |
+| 2016 | 10.8      | 13.7        | 0.0       | 1022.5         | Normal        |
+| 2017 | 20.9      | 23.0        | 0.0       | 1010.8         | Fast (Easy)   |
+| 2018 | 4.2       | 31.7        | 39.9      | 1014.9         | Normal        |
+| 2019 | 13.3      | 25.9        | 18.3      | 994.5          | Fast (Easy)   |
+
+
+**Heat is Enemy #1 (The Case of 2004 & 2012)**
+
+This is the most obvious correlation as seen in request 1. Human physiology handles overheating very poorly during endurance events.
+
+Year 2004 (The Slowest Year - 181.5 min):
+Weather: High temperature (18.3°C) combined with strong winds (24.1 km/h).
+Result: This is the worst-case scenario. Heat causes dehydration and increases heart rate, while the wind exhausts the runners. This was the hardest year.
+
+Year 2012 (Very Slow - 175.6 min):
+Weather: The highest average temperature in the entire dataset (21.6°C).
+Analysis: Despite low wind and no rain, the heat alone was enough to classify this year as "Hard".
+
+**The 2013 Anomaly: The Mystery of High Pressure**
+
+This is the outlier we spotted on your previous scatter plot.
+2013 is the 2nd slowest year (179.4 min), yet the temperature was ideal (7.1°C) and there was no rain. But it was the record about atmospheric pressure (1032.4 hPa).
+This indicates extreme anticyclonic conditions. While scientific literature varies, such high pressure can be associated with higher air density (more aerodynamic resistance) or, more likely in urban environments, pollution stagnation (lack of wind to disperse fine particles), which hampers respiratory capacity at maximum effort. This is the only plausible meteorological explanation for such a massive underperformance.
+
+**Wind and Rain "Break" Speed, but Less than Heat (The Case of 2007 & 2018)**
+
+Stormy conditions slow down the race, but they do not cause the total collapse seen during hot years.
+
+Year 2007 (Slow - 169.2 min):
+There was a storm. Huge wind (37.8 km/h) + Heavy rain (23.6 mm) + Low pressure (986 hPa).
+It was slow, but runners finished 12 minutes faster than in 2004 (hot). The cold and rain help prevent the body from overheating, limiting the "damage" despite the discomfort.
+
+Year 2018: Similar conditions (heavy rain 39.9mm, wind 31.7). The time (167.2 min) is significantly slower than 2019 (160.5 min), confirming the negative impact of the storm.
+
+**The Hidden Bias: The Explosion in Participation (2015-2019)**
+
+From 2015 onwards, the number of runners exploded. All years become "Green" (Fast). We can assume that this changement is not only due to the weather, but also due to the improvement of the Top 1000 results.
+By multiplying the number of participants, it mechanically increases the density of elite runners.
+
+
 ### 3. Cumulative Weather "Harshness" Score
 **Goal:** Measure the impact of combined weather factors on different age groups.
-* **Logic:** Compute a custom **Composite Weather Score** (e.g., `(Temp - 15)² + WindSpeed*0.5 + Precipitation*2`) for each race. Correlate this score with the average performance of the **Top 50 runners**, broken down by **Age Group** and **Gender**.
+* **Logic:** Compute a custom **Composite Weather Score** (e.g., `(Temp - 10)² + WindSpeed*0.5 + Precipitation*2`) for each race. Correlate this score with the average performance of the **Top 50 runners**, broken down by **Age Group** and **Gender**.
 * **Insight:** Understand which age groups are most significantly affected by harsh weather conditions (composite stress).
+
+<br>
+<img src="images/request_analysis_3a.png" alt="Correlation Matrix reveling the impact of harsh condition by gender and by age" title="Correlation Matrix reveling the impact of harsh condition by gender and by age" width="60%" />
+<br>
+
+<br>
+<img src="images/request_analysis_3b.png" alt="Weather Difficulty Score vs Performance for men 40-49" title="Weather Difficulty Score vs Performance for men 40-49" width="60%" />
+<br>
+
+<br>
+
+**The Heatmap (Impact by Age and Gender)**  
+This chart demonstrates that the elite runners (Top 50) are generally very resilient to weather conditions, often showing low correlation coefficients. However, there is a notable exception: Men aged 40-49 (correlation of 0.39) and, to a lesser extent, those aged 50-59 (0.29). Conversely, women appear to maintain more consistent performances regardless of the weather.
+
+**The Scatter Plot (Men 40-49)**  
+This graph details the most sensitive group identified above. The red trend line confirms a positive relationship: the harsher the conditions, the slower the average race time. For instance, years with severe weather (like 2012 or 2018) correspond to significantly slower times (above 160 minutes) compared to a mild year like 2013 (under 150 minutes).
+
+While weather influences the race, its impact remains moderate for the majority of the elite field, with the exception of the male "Masters" category (40-59), who appear to be more susceptible to the elements.
+
 
 ## Project Delivery and Compliance
 ### Technical Stack and Justification
